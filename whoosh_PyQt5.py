@@ -1,0 +1,1068 @@
+# pyinstaller --noconfirm --onefile --windowed whoosh_PyQt5.py --icon=ico.ico
+import base64
+import json
+import logging
+import os
+import tempfile
+import shutil
+import subprocess
+import sys
+from datetime import datetime
+import webbrowser
+import certifi
+import requests
+from PyQt5.QtCore import QThread, QUrl, Qt, pyqtSignal
+from PyQt5.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap, QTextCursor
+from PyQt5.QtWidgets import (
+    QAction,
+    QApplication,
+    QDialog,
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QProgressBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextBrowser,
+    QVBoxLayout,
+    QWidget,
+)
+from whoosh.analysis import StemmingAnalyzer
+from whoosh.fields import ID, NUMERIC, Schema, TEXT
+from whoosh.index import create_in, open_dir
+from whoosh.qparser import QueryParser
+from icon import icon_base64
+
+icon_base64 = icon_base64
+
+if getattr(sys, "frozen", False):
+    # إذا البرنامج مجمع (مثل PyInstaller)
+    APP_DIR = os.path.dirname(sys.executable)
+else:
+    # أثناء التطوير: مسار الملف الحالي
+    APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+DEFAULT_PDF_JSON_DIR = os.path.join(APP_DIR, "PDF_JSON")
+os.makedirs(DEFAULT_PDF_JSON_DIR, exist_ok=True)
+
+DEFAULT_DATA_DIR = os.path.join(os.environ["LOCALAPPDATA"], "LawLib")
+os.makedirs(DEFAULT_DATA_DIR, exist_ok=True)
+DEFAULT_INDEX_DIR = os.path.join(DEFAULT_DATA_DIR, "indexdir")
+HISTORY_FILE_PATH = os.path.join(DEFAULT_DATA_DIR, "versions_history.json")
+
+# المسار المؤقت للمستخدم
+TEMP_DIR = tempfile.gettempdir()
+ERROR_LOG_PATH = os.path.join(TEMP_DIR, "error_log.txt")
+logging.basicConfig(
+    filename=ERROR_LOG_PATH,
+    level=logging.ERROR,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+# استخدام HISTORY_FILE_PATH بدلًا من ثابت مباشر
+LOCAL_HISTORY_FILE = HISTORY_FILE_PATH
+
+
+def initialize_index():
+    try:
+        source_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "indexdir"
+        )
+        target_dir = DEFAULT_INDEX_DIR
+
+        if not os.path.exists(target_dir):
+            shutil.copytree(source_dir, target_dir)
+    except Exception as e:
+        logging.error(
+            "تعذر نسخ الفهرس من %s إلى %s: %s", source_dir, target_dir, str(e)
+        )
+
+
+# --- دالة فهرسة ملفات txt ---
+def index_txt_files(base_dir, index_dir, progress_callback=None):
+    arabic_analyzer = StemmingAnalyzer()  # يمكن استبداله بـ ArabicAnalyzer مخصص إن توفر
+
+    schema = Schema(
+        title=TEXT(stored=True, analyzer=arabic_analyzer),
+        content=TEXT(stored=True, analyzer=arabic_analyzer),
+        path=ID(stored=True, unique=True),
+        pdf=ID(stored=True),
+        page=NUMERIC(stored=True),
+    )
+
+    # محاولة فتح الفهرس أو إعادة إنشائه إذا كان تالفًا
+    if not os.path.exists(index_dir):
+        os.mkdir(index_dir)
+        ix = create_in(index_dir, schema)
+    else:
+        try:
+            ix = open_dir(index_dir)
+        except Exception as e:
+            logging.error(
+                f"Error opening index directory {index_dir}, attempting to recreate: {e}"
+            )
+            import shutil
+
+            try:
+                shutil.rmtree(index_dir)
+                os.mkdir(index_dir)
+                ix = create_in(index_dir, schema)
+            except Exception as rm_e:
+                logging.error(f"Error recreating index directory: {rm_e}")
+                raise
+
+    # جمع جميع ملفات txt المؤهلة
+    txt_files = []
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            if file.endswith(".txt"):
+                txt_path = os.path.join(root, file)
+                pdf_path = os.path.join(root, file.replace(".txt", ".pdf"))
+                if os.path.exists(pdf_path):
+                    txt_files.append((txt_path, pdf_path))
+
+    total_files = len(txt_files)
+    if total_files == 0 and progress_callback:
+        progress_callback.emit(100)  # لا توجد ملفات
+
+    with ix.writer(multisegment=True) as writer:
+        for count, (txt_path, pdf_path) in enumerate(txt_files, start=1):
+            file = os.path.basename(txt_path)
+            try:
+                with open(txt_path, "r", encoding="utf-8", errors="ignore") as f:
+                    sections = f.read().split("## ")
+                    for section in sections:
+                        if not section.strip():
+                            continue
+                        try:
+                            header, *body = section.split("\n", 1)
+                            page_str = header.strip()
+                            if not page_str:
+                                logging.warning(
+                                    f"Skipping section with empty page header in {txt_path}"
+                                )
+                                continue
+                            page = int(page_str)
+                            content = body[0].strip() if body else ""
+                            writer.update_document(
+                                title=file,
+                                content=content,
+                                path=txt_path,
+                                pdf=pdf_path,
+                                page=page,
+                            )
+                            logging.info(f"Indexed {file} - Page {page}")
+                        except ValueError:
+                            logging.error(
+                                f"Invalid page number '{header.strip()}' in section of {txt_path}",
+                                exc_info=True,
+                            )
+                        except Exception:
+                            logging.error(
+                                f"Error parsing section in {txt_path}", exc_info=True
+                            )
+            except Exception as e_file:
+                logging.error(f"Error reading file {txt_path}: {e_file}", exc_info=True)
+
+            # تحديث التقدم
+            if progress_callback and total_files > 0:
+                progress_callback.emit(int((count / total_files) * 100))
+
+
+def normalize_arabic(text):
+    if not text:
+        return ""
+    replacements = {
+        "أ": "ا",
+        "إ": "ا",
+        "آ": "ا",
+        "ى": "ي",
+        "ؤ": "و",
+        "ئ": "ي",
+        "ة": "ه",
+        "ً": "",
+        "ٌ": "",
+        "ٍ": "",
+        "َ": "",
+        "ُ": "",
+        "ِ": "",
+        "ّ": "",
+        "ْ": "",
+        "ٓ": "",
+        "ٔ": "",
+        "ٱ": "ا",
+    }
+    for src, target in replacements.items():
+        text = text.replace(src, target)
+    return text
+
+
+def index_json_books(base_dir, index_dir, progress_callback=None):
+    arabic_analyzer = StemmingAnalyzer()
+
+    schema = Schema(
+        title=TEXT(stored=True, analyzer=arabic_analyzer),
+        content=TEXT(stored=True, analyzer=arabic_analyzer),
+        path=ID(stored=True, unique=True),
+        pdf=ID(stored=True),
+        image=ID(stored=True),  # تخزين المسار فقط
+        sha512=ID(stored=True),
+        page=NUMERIC(stored=True),
+    )
+
+    if not os.path.exists(index_dir):
+        os.mkdir(index_dir)
+        ix = create_in(index_dir, schema)
+    else:
+        try:
+            ix = open_dir(index_dir)
+        except Exception as e:
+            logging.error(f"تعذر فتح فهرس {index_dir}، سيتم إعادة إنشائه: {e}")
+            import shutil
+
+            try:
+                shutil.rmtree(index_dir)
+                os.mkdir(index_dir)
+                ix = create_in(index_dir, schema)
+            except Exception as rm_e:
+                logging.error(f"فشل حذف أو إعادة إنشاء الفهرس: {rm_e}")
+                raise
+
+    json_files = []
+    for root, dirs, files in os.walk(base_dir):
+        for file in files:
+            if file.endswith(".json"):
+                json_path = os.path.join(root, file)
+                pdf_path = os.path.join(root, file.replace(".json", ".pdf"))
+                image_path = os.path.join(root, file.replace(".json", ".jpg"))
+                if os.path.exists(pdf_path) and os.path.exists(image_path):
+                    json_files.append((json_path, pdf_path, image_path))
+
+    total_files = len(json_files)
+    if total_files == 0 and progress_callback:
+        progress_callback.emit(100)
+
+    with ix.searcher() as searcher, ix.writer(multisegment=True) as writer:
+        sha_query = QueryParser("sha512", schema=ix.schema)
+
+        for count, (json_path, pdf_path, image_path) in enumerate(json_files, start=1):
+            try:
+                with open(json_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                sha = data.get("sha512", "").strip()
+                if not sha:
+                    logging.warning(f"تخطي الملف لعدم وجود sha: {json_path}")
+                    continue
+
+                # التحقق مما إذا كان sha موجود مسبقًا
+                query = sha_query.parse(f'"{sha}"')
+                if searcher.search(query, limit=1):
+                    logging.info(f"تم تخطي الكتاب (مفهرس مسبقًا): {json_path}")
+                    continue
+
+                title = data.get("book_name", os.path.basename(json_path))
+                image_path_stored = image_path  # تخزين مسار الصورة فقط
+
+                for entry in data.get("contents", []):
+                    page = entry.get("page")
+                    content = entry.get("text", "").strip()
+                    if content:
+                        writer.add_document(
+                            title=normalize_arabic(title),
+                            content=normalize_arabic(content),
+                            path=json_path,
+                            pdf=pdf_path,
+                            image=image_path_stored,  # تخزين المسار هنا
+                            sha512=sha,
+                            page=page,
+                        )
+                        logging.info(f"تمت فهرسة {title} - صفحة {page}")
+            except Exception as e_file:
+                logging.error(
+                    f"خطأ في قراءة أو تحليل {json_path}: {e_file}", exc_info=True
+                )
+
+            if progress_callback and total_files > 0:
+                progress_callback.emit(int((count / total_files) * 100))
+
+
+class IndexThread(QThread):
+    progress = pyqtSignal(int)
+    done = pyqtSignal(str)
+
+    def __init__(self, base_dir, index_dir):
+        super().__init__()
+        self.base_dir = base_dir
+        self.index_dir = index_dir
+
+    def run(self):
+        try:
+            index_json_books(self.base_dir, self.index_dir, self.progress)
+            self.done.emit("✅ تم فهرسة الملفات بنجاح.")
+        except Exception as e:
+            logging.error("Error during indexing thread execution", exc_info=True)
+            self.done.emit(f"❌ فشلت الفهرسة: {str(e)}")
+
+
+class IndexDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("فهرسة الملفات")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setGeometry(200, 200, 600, 200)
+        self.init_ui()
+        self.center_on_screen()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+
+        # مجلد المصدر
+        path_layout = QHBoxLayout()
+        self.path_input = QLineEdit(DEFAULT_PDF_JSON_DIR)
+        self.path_input.setReadOnly(True)
+        path_layout.addWidget(QLabel("📁 المجلد المصدر:"))
+        path_layout.addWidget(self.path_input)
+
+        # زر "فتح المجلد"
+        open_folder_btn = QPushButton("فتح المجلد")
+        open_folder_btn.clicked.connect(self.open_source_folder)
+        path_layout.addWidget(open_folder_btn)
+
+        # مجلد الفهرس
+        index_path_layout = QHBoxLayout()
+        self.index_path_input = QLineEdit(DEFAULT_INDEX_DIR)
+        self.index_path_input.setReadOnly(True)
+        index_path_layout.addWidget(QLabel("🗂️ مجلد الفهرس:"))
+        index_path_layout.addWidget(self.index_path_input)
+
+        browse_btn_index = QPushButton("استعراض...")
+        browse_btn_index.setEnabled(False)
+        browse_btn_index.setVisible(False)
+        index_path_layout.addWidget(browse_btn_index)
+
+        # شريط التقدم
+        self.progress = QProgressBar()
+        self.progress.setValue(0)
+        self.progress.setTextVisible(True)
+
+        # حالة العملية
+        self.status_label = QLabel("جارٍ الفهرسة...")
+        self.status_label.setAlignment(Qt.AlignCenter)
+
+        # زر بدء الفهرسة
+        self.index_btn = QPushButton("بدء الفهرسة")
+        self.index_btn.clicked.connect(self.start_indexing)
+
+        # أزرار فتح السجلات
+        buttons_layout = QHBoxLayout()
+
+        open_history_btn = QPushButton("فتح سجل التحديثات")
+        open_history_btn.clicked.connect(self.open_history_file)
+        buttons_layout.addWidget(open_history_btn)
+
+        open_error_log_btn = QPushButton("فتح سجل الأخطاء")
+        open_error_log_btn.clicked.connect(self.open_error_log_file)
+        buttons_layout.addWidget(open_error_log_btn)
+
+        # تجميع كل العناصر
+        layout.addLayout(buttons_layout)
+        layout.addLayout(path_layout)
+        layout.addLayout(index_path_layout)
+        layout.addWidget(self.progress)
+        layout.addWidget(self.index_btn)
+        layout.addWidget(self.status_label)
+        self.setLayout(layout)
+
+    def open_source_folder(self):
+        folder_path = self.path_input.text().strip()
+        if os.path.isdir(folder_path):
+            self.open_file_with_default_app(folder_path)
+        else:
+            QMessageBox.warning(self, "خطأ", f"المجلد غير موجود:\n{folder_path}")
+
+    def open_history_file(self):
+        path = LOCAL_HISTORY_FILE
+        if os.path.isfile(path):
+            self.open_file_with_default_app(path)
+        else:
+            QMessageBox.warning(self, "خطأ", f"ملف سجل التحديثات غير موجود:\n{path}")
+
+    def open_error_log_file(self):
+        path = ERROR_LOG_PATH
+        if os.path.isfile(path):
+            self.open_file_with_default_app(path)
+        else:
+            QMessageBox.warning(self, "خطأ", f"ملف سجل الأخطاء غير موجود:\n{path}")
+
+    def open_file_with_default_app(self, filepath):
+        if sys.platform == "win32":
+            os.startfile(filepath)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", filepath])
+        else:
+            subprocess.Popen(["xdg-open", filepath])
+
+    def center_on_screen(self):
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        x = (screen_geometry.width() - self.width()) // 2
+        y = (screen_geometry.height() - self.height()) // 2
+        self.move(x, y)
+
+    def start_indexing(self):
+        base = self.path_input.text().strip()
+        idx = self.index_path_input.text().strip()
+
+        if not os.path.isdir(base):
+            QMessageBox.warning(self, "خطأ", f"مجلد المصدر غير موجود: {base}")
+            return
+
+        if not os.path.isdir(idx):
+            QMessageBox.warning(self, "خطأ", f"مجلد الفهرس غير موجود: {idx}")
+            return
+
+        self.index_btn.setEnabled(False)
+        self.status_label.setText("⏳ جارٍ الفهرسة...")
+        self.progress.setValue(0)
+
+        self.thread = IndexThread(base, idx)
+        self.thread.progress.connect(self.progress.setValue)
+        self.thread.done.connect(self.on_indexing_done)
+        self.thread.start()
+
+    def on_indexing_done(self, message):
+        self.status_label.setText(message)
+        self.index_btn.setEnabled(True)
+        if "✅" in message:
+            QMessageBox.information(self, "اكتملت الفهرسة", message)
+        else:
+            QMessageBox.critical(self, "خطأ في الفهرسة", message)
+
+class SearchApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("المكتبة القانونية محرك بحث بالنص الكامل")
+        self.setGeometry(
+            100, 100, 800, 600
+        )  # Adjusted window size as PDF viewer is gone
+        self.setLayoutDirection(Qt.RightToLeft)  # For RTL layout
+        icon_data = base64.b64decode(icon_base64)
+        pixmap = QPixmap()
+        pixmap.loadFromData(icon_data)
+        self.setWindowIcon(QIcon(pixmap))
+        self.index_dir = DEFAULT_INDEX_DIR
+        self.last_search_results_html = ""  # Initialize variable to store HTML results
+        self.init_ui()
+        self.center_on_screen()
+
+    def init_ui(self):
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+
+        main_layout = QVBoxLayout(
+            main_widget
+        )  # Changed to QVBoxLayout, no need for splitter if only one main area
+
+        # جانب البحث
+        search_group_widget = QWidget()  # Use a QWidget as a container for the layout
+        search_layout = QVBoxLayout(
+            search_group_widget
+        )  # Apply layout to the container
+
+        search_input_layout = QHBoxLayout()
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("أدخل كلمة البحث هنا...")
+        self.search_input.returnPressed.connect(
+            self.search_query
+        )  # Search on Enter key
+        search_btn = QPushButton("🔍 بحث")
+        search_btn.clicked.connect(self.search_query)
+
+        search_input_layout.addWidget(self.search_input)
+        search_input_layout.addWidget(search_btn)
+
+        self.results_browser = QTextBrowser()
+        # Keep setOpenExternalLinks(False) to manually handle links and provide custom feedback
+        self.results_browser.setOpenExternalLinks(False)
+        self.results_browser.anchorClicked.connect(self.handle_link_click)
+
+        search_layout.addLayout(search_input_layout)
+        search_layout.addWidget(QLabel("📑 النتائج:"))
+        search_layout.addWidget(self.results_browser)
+
+        # No PDF viewer, so no splitter needed.
+        main_layout.addWidget(search_group_widget)
+
+        menubar = self.menuBar()
+        file_menu = menubar.addMenu("ملف")  # Renamed for convention
+        help_menu = menubar.addMenu("مساعدة")
+        help_action = QAction("إرشادات البحث", self)
+        update_action = QAction("تحديث كتب البرنامج", self)
+        update_action.setShortcut("Ctrl+U")  # إضافة اختصار
+        update_action.triggered.connect(self.check_for_update)
+        help_menu.addAction(update_action)
+        howto_action = QAction("كيفية تحديث كتب البرنامج", self)
+        howto_action.setShortcut("Ctrl+H")
+        howto_action.triggered.connect(self.open_how_to_use)
+        help_menu.addAction(howto_action)
+        help_action.setShortcut("F1")
+        help_action.triggered.connect(self.show_help_dialog)
+        help_menu.addAction(help_action)
+        index_action = QAction(
+            QIcon.fromTheme("document-properties", QIcon("")), "فهرسة جديدة...", self
+        )  # Added icon hint
+        index_action.setShortcut("Ctrl+I")
+        index_action.triggered.connect(self.open_index_dialog)
+        file_menu.addAction(index_action)
+        dev_mode_action = QAction("المطور", self)
+        dev_mode_action.setShortcut("Ctrl+D")
+        dev_mode_action.triggered.connect(self.open_developer_dialog)
+        help_menu.addAction(dev_mode_action)
+        exit_action = QAction(
+            QIcon.fromTheme("application-exit", QIcon("")), "خروج", self
+        )
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+
+        self.statusBar().showMessage("جاهز.")
+
+    def center_on_screen(self):
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        x = (screen_geometry.width() - self.width()) // 2
+        y = (screen_geometry.height() - self.height()) // 2
+        self.move(x, y)
+
+    def open_developer_dialog(self):
+        dialog = DeveloperDialog(self)
+        dialog.exec_()
+
+    def open_how_to_use(self):
+        try:
+            path = os.path.abspath("how_to_use_it.html")
+            webbrowser.open(f"file://{path}")
+        except Exception as e:
+            logging.error("تعذر فتح ملف التعليمات: %s", str(e))
+            QMessageBox.critical(self, "خطأ", "تعذر فتح ملف التعليمات.")
+
+    def check_for_update(self):
+        dialog = UpdateCheckerDialog()
+        dialog.exec_()
+
+    def show_help_dialog(self):
+        dialog = HelpDialog(self)
+        dialog.exec_()
+
+    def open_index_dialog(self):
+        dialog = IndexDialog(self)
+        if dialog.exec_():
+            self.statusBar().showMessage("تم إغلاق نافذة الفهرسة.")
+
+    def search_query(self):
+        query_text = self.search_input.text().strip()
+        if not query_text:
+            self.results_browser.setHtml(
+                "<p style='color:orange;'>يرجى إدخال كلمة للبحث.</p>"
+            )
+            self.statusBar().showMessage("يرجى إدخال كلمة للبحث.")
+            # Clear previous results if search input is empty
+            self.last_search_results_html = ""
+            return
+
+        self.results_browser.clear()
+        self.statusBar().showMessage(f"⏳ جارٍ البحث عن: {query_text}...")
+
+        try:
+            from whoosh.index import open_dir, exists_in
+            from whoosh.qparser import QueryParser
+
+            if not exists_in(self.index_dir) or not os.listdir(
+                self.index_dir
+            ):  # Check if index dir exists and is not empty
+                self.results_browser.setHtml(
+                    "<p style='color:red;'>⚠️ الفهرس غير موجود أو فارغ. الرجاء فهرسة الملفات أولاً من قائمة 'ملف'.</p>"
+                )
+                self.statusBar().showMessage("الفهرس غير موجود أو فارغ.")
+                QMessageBox.warning(
+                    self,
+                    "الفهرس غير موجود",
+                    "الفهرس غير موجود أو فارغ. يرجى الذهاب إلى 'ملف' > 'فهرسة جديدة' لإنشاء الفهرس.",
+                )
+                # Clear previous results
+                self.last_search_results_html = ""
+                return
+
+            ix = open_dir(self.index_dir)
+            qp = QueryParser("content", schema=ix.schema)
+            normalized_query = normalize_arabic(query_text)
+            q = qp.parse(normalized_query)
+
+            with ix.searcher() as searcher:
+                results = searcher.search(q, limit=500)  # Increased limit
+                if not results:
+                    self.results_browser.setHtml(
+                        f"<p style='color:darkorange;'>❗️لم يتم العثور على نتائج للبحث عن: '{query_text}'.</p>"
+                    )
+                    self.statusBar().showMessage(
+                        f"لم يتم العثور على نتائج لـ '{query_text}'."
+                    )
+                    # Clear previous results
+                    self.last_search_results_html = ""
+                    return
+
+                html_parts = []
+                num_results = len(results)
+                self.statusBar().showMessage(
+                    f"تم العثور على {num_results} نتيجة لـ '{query_text}'."
+                )
+
+                # قبل الحلقة، افتح حاوية الشبكة
+                html_parts.append(
+                    "<div style='"
+                    "display: grid;"
+                    "grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));"
+                    "gap: 15px;"
+                    "margin-top: 10px;"
+                    "'>"
+                )
+                seen_pdfs = set()
+                for i, r in enumerate(results):
+                    file_title = r.get("title", "بدون عنوان")
+                    pdf_path = r["pdf"]
+                    if pdf_path in seen_pdfs:
+                        continue
+                    seen_pdfs.add(pdf_path)
+                    page_num = r["page"]
+                    image_base64 = r.get("image", "")
+
+                    full_file_uri = (
+                        QUrl.fromLocalFile(pdf_path).toString() + f"#page={page_num}"
+                    )
+                    external_link_href = full_file_uri
+
+                    excerpt = r.highlights("content", top=2) or r["content"][:300]
+
+                    # بطاقة نتيجة واحدة
+                    card_html = (
+                        "<div style='"
+                        "border: 1px solid #eee;"
+                        "border-radius: 6px;"
+                        "padding: 10px;"
+                        "display: flex;"
+                        "flex-direction: column;"
+                        "height: 100%;"
+                        "'>"
+                    )
+
+                    # المحتوى النصي
+                    card_html += (
+                        f"<h4 style='margin:0 0 6px 0; font-size: 1em;'>{i+1}. {file_title} (صفحة {page_num})</h4>"
+                        f"<p style='flex-grow: 1; font-size: 0.9em; color: #333; margin:0 0 8px 0;'>{excerpt}...</p>"
+                        f"<p style='font-size: 0.8em; color: #555; margin:0 0 10px 0;'>"
+                        f"المسار: {os.path.basename(pdf_path)}"
+                        "</p>"
+                        f'<a href="{external_link_href}" '
+                        f"style='align-self: flex-start; font-size: 0.9em; color: #28a745; text-decoration: none;' "
+                        f'target="_blank">افتح الملف</a>'
+                    )
+
+                    # الصورة أعلى البطاقة (إن وجدت)
+                    if image_base64:
+                        card_html += (
+                            f"<div style='flex-shrink: 0; text-align: center; margin-bottom: 8px;'>"
+                            f"<img src='{image_base64}' "
+                            f"style='max-width: 60%; max-height: 80px; border-radius: 4px;' height='800'/>"
+                            "</div>"
+                        )
+
+                    card_html += "</div>"  # نهاية البطاقة
+
+                    html_parts.append(card_html)
+
+                # بعد الحلقة، أغلق حاوية الشبكة
+                html_parts.append("</div>")
+
+                # ثم اعرضها
+                self.last_search_results_html = "".join(html_parts)
+                self.results_browser.setHtml(self.last_search_results_html)
+                self.results_browser.moveCursor(QTextCursor.Start)
+
+        except Exception as e:
+            logging.error("Exception in search_query", exc_info=True)
+            self.results_browser.setHtml(
+                f"<p style='color:red;'>❌ خطأ أثناء البحث: {str(e)}</p>"
+            )
+            self.statusBar().showMessage("حدث خطأ أثناء البحث.")
+            QMessageBox.critical(
+                self, "خطأ في البحث", f"حدث خطأ غير متوقع أثناء البحث:\n{str(e)}"
+            )
+            # Clear previous results on search error
+            self.last_search_results_html = ""
+
+    def handle_link_click(self, url: QUrl):
+        full_file_uri = url.toString()
+
+        # استخراج المسار المحلي للملف ورقم الصفحة للعرض/التسجيل
+        pdf_path = url.toLocalFile()
+        page_fragment = url.fragment()
+        page_num = None
+        if page_fragment and page_fragment.startswith("page="):
+            try:
+                page_num = int(page_fragment.split("=")[1])
+            except ValueError:
+                logging.warning(
+                    f"Could not parse page number from fragment: {page_fragment}"
+                )
+
+        print(
+            f"Attempting to open URI: {full_file_uri}, Local Path: {pdf_path}, Page: {page_num}"
+        )
+        self.statusBar().showMessage(
+            f"محاولة فتح: {os.path.basename(pdf_path)}، صفحة: {page_num if page_num else 'غير محددة'}"
+        )
+
+        try:
+            # Save current scroll position
+            current_scroll_pos = self.results_browser.verticalScrollBar().value()
+
+            if sys.platform.startswith("win"):
+                os.startfile(full_file_uri)
+                self.statusBar().showMessage(
+                    f"تم طلب فتح {os.path.basename(pdf_path)} باستخدام os.startfile."
+                )
+
+            elif sys.platform.startswith("darwin"):
+                subprocess.Popen(["open", full_file_uri])
+                self.statusBar().showMessage(
+                    f"تم طلب فتح {os.path.basename(pdf_path)} باستخدام أمر 'open'."
+                )
+
+            else:  # Linux and other Unix-like
+                subprocess.Popen(["xdg-open", full_file_uri])
+                self.statusBar().showMessage(
+                    f"تم طلب فتح {os.path.basename(pdf_path)} باستخدام xdg-open."
+                )
+
+            # ----------------------------------------------------------------------
+            # التغيير الجديد: الرجوع إلى نتائج البحث السابقة
+            if (
+                hasattr(self, "last_search_results_html")
+                and self.last_search_results_html
+            ):
+                self.results_browser.setHtml(self.last_search_results_html)
+                # Restore scroll position
+                self.results_browser.verticalScrollBar().setValue(current_scroll_pos)
+            else:
+                # في حال عدم وجود نتائج سابقة (مثلاً إذا لم يتم البحث بعد)
+                self.results_browser.setHtml(
+                    "<p>تم فتح الملف بنجاح.</p><p>لا توجد نتائج سابقة لعرضها.</p>"
+                )
+            # ----------------------------------------------------------------------
+
+        except Exception as e:
+            logging.error(
+                f"Error opening PDF using platform-specific command for {full_file_uri}: {e}",
+                exc_info=True,
+            )
+            QMessageBox.critical(
+                self,
+                "خطأ في الفتح",
+                f"حدث خطأ أثناء محاولة فتح الملف:\n{pdf_path}\n\n"
+                f"الخطأ: {str(e)}\n\n"
+                "الرجاء التأكد من وجود قارئ PDF افتراضي يعمل بشكل صحيح."
+                "قد تحتاج إلى تثبيت قارئ PDF أو التحقق من إعدادات النظام."
+                "\n\nملاحظة: إذا كان قارئ PDF الافتراضي لديك هو متصفح الويب، فقد لا يتم الانتقال إلى الصفحة المحددة بشكل صحيح.",
+            )
+            self.statusBar().showMessage("فشل فتح الملف.")
+
+
+class DeveloperDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("المطور - مكتب معتز الشريدة للمحاماة")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setFixedSize(400, 200)
+        self.init_ui()
+        self.center_on_screen()
+
+    def init_ui(self):
+        layout = QVBoxLayout()
+        label = QLabel(
+            "<h3 style='color:#2c3e50;'>مكتب معتز الشريدة للمحاماة</h3>"
+            "<p>للتواصل: <a href='mailto:dev@mws.per.jo'>dev@mws.per.jo</a></p>"
+        )
+        label.setOpenExternalLinks(True)
+        label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(label)
+
+        close_btn = QPushButton("إغلاق")
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignCenter)
+
+        self.setLayout(layout)
+
+    def center_on_screen(self):
+        screen_geometry = QApplication.primaryScreen().availableGeometry()
+        x = (screen_geometry.width() - self.width()) // 2
+        y = (screen_geometry.height() - self.height()) // 2
+        self.move(x, y)
+
+
+class UpdateCheckerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("التحقق من تحديث كتب البرنامج")
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setMinimumSize(600, 400)
+        self.setWindowFlags(Qt.Window)
+        self.history = []
+        self.cache_updates = []  # قائمة بجميع التحديثات القادمة من الخادم
+        self.init_ui()
+        self.load_history()
+        self.refresh_table()
+        self.check_for_update_on_start()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+
+        self.version_table = QTableWidget()
+        self.version_table.setColumnCount(5)
+        self.version_table.setHorizontalHeaderLabels(
+            ["الإصدار", "تاريخ الإصدار", "رابط التحديث", "الحالة", "الإجراء"]
+        )
+        self.version_table.horizontalHeader().setStretchLastSection(True)
+        self.version_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.version_table.cellDoubleClicked.connect(self.open_url_from_table)
+        self.version_table.verticalHeader().setVisible(False)
+
+        self.status_label = QLabel("", alignment=Qt.AlignCenter)
+        self.status_label.setWordWrap(True)
+        font = QFont()
+        font.setPointSize(12)
+        self.status_label.setFont(font)
+
+        self.update_button = QPushButton("التحقق يدويًا من تحديث كتب البرنامج")
+        self.update_button.clicked.connect(self.check_for_update_on_start)
+
+        layout.addWidget(self.version_table)
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.update_button)
+        self.setLayout(layout)
+
+    def format_date(self, iso_str):
+        try:
+            dt = datetime.fromisoformat(iso_str)
+            months = [
+                "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
+                "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+            ]
+            return f"{dt.day} {months[dt.month-1]} {dt.year} - {dt.hour:02d}:{dt.minute:02d}"
+        except:
+            return iso_str
+
+    def load_history(self):
+        if os.path.exists(LOCAL_HISTORY_FILE):
+            try:
+                with open(LOCAL_HISTORY_FILE, "r", encoding="utf-8") as f:
+                    content = f.read().strip()
+                    self.history = json.loads(content) if content else []
+            except Exception as e:
+                print(f"خطأ في تحميل سجل التحديثات: {e}")
+                self.history = []
+        else:
+            self.history = []
+
+    def save_history(self):
+        with open(LOCAL_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.history, f, ensure_ascii=False, indent=2)
+
+    def refresh_table(self):
+        all_updates = self.history + self.cache_updates
+        unique_versions = {rec["version"]: rec for rec in all_updates}
+        rows = list(unique_versions.values())
+
+        self.version_table.setRowCount(len(rows))
+        installed_versions = {rec["version"] for rec in self.history}
+
+        for row, rec in enumerate(rows):
+            version = rec["version"]
+            is_installed = version in installed_versions
+            status = "مثبت" if is_installed else "غير مثبت"
+            action_enabled = not is_installed and rec in self.cache_updates
+            self._fill_row(row, rec, status, action_enabled)
+
+    def _fill_row(self, row, rec, status, action_enabled):
+        self.version_table.setItem(row, 0, QTableWidgetItem(str(rec["version"])))
+        self.version_table.setItem(row, 1, QTableWidgetItem(self.format_date(rec["updated_at"])))
+        url_text = rec.get("updated_url", "") or "—"
+        url_item = QTableWidgetItem(url_text)
+        if url_text != "—":
+            url_item.setForeground(QColor(0, 0, 200))
+        self.version_table.setItem(row, 2, url_item)
+
+        status_item = QTableWidgetItem(status)
+        if status == "مثبت":
+            status_item.setBackground(QColor(200, 255, 200))
+        self.version_table.setItem(row, 3, status_item)
+
+        btn = QPushButton("تحميل" if status == "غير مثبت" else "مثبت")
+        btn.setEnabled(action_enabled)
+        if action_enabled:
+            btn.clicked.connect(lambda _, r=rec: self.download_update(r))
+        self.version_table.setCellWidget(row, 4, btn)
+
+    def open_url_from_table(self, row, col):
+        if col == 2:
+            url = self.version_table.item(row, col).text()
+            if url and url != "—":
+                QDesktopServices.openUrl(QUrl(url))
+
+    def check_for_update_on_start(self):
+        self.status_label.setText("جاري التحقق من تحديث كتب البرنامج…")
+        try:
+            r = requests.get(
+                "https://mws.per.jo/library/books-updeat/",
+                verify=certifi.where(),
+                timeout=5,
+            )
+            if r.status_code != 200:
+                self.status_label.setText("❌ فشل الاتصال بالخادم.")
+                return
+
+            data = r.json()
+            if not isinstance(data, list):
+                self.status_label.setText("⚠️ البيانات المستلمة غير صحيحة.")
+                return
+
+            installed_versions = {rec["version"] for rec in self.history}
+            self.cache_updates = []
+
+            for update in data:
+                version = str(update.get("version", ""))
+                if version not in installed_versions:
+                    self.cache_updates.append({
+                        "version": version,
+                        "updated_at": update.get("updated_at", ""),
+                        "updated_url": update.get("updated_url", ""),
+                    })
+
+            if self.cache_updates:
+                self.status_label.setText(f"📚 تم العثور على {len(self.cache_updates)} تحديث(ات) جديدة.")
+            else:
+                self.status_label.setText("✅ لا توجد تحديثات جديدة.")
+
+            self.refresh_table()
+
+        except Exception as e:
+            self.status_label.setText(f"⚠️ فشل الاتصال: {e}")
+
+    def download_update(self, rec):
+        url = rec.get("updated_url")
+        if not url:
+            QMessageBox.warning(self, "خطأ", "الرابط غير متوفر.")
+            return
+
+        QDesktopServices.openUrl(QUrl(url))
+        self.status_label.setText(f"📥 جاري تحميل الإصدار {rec['version']} ... بعد الانتهاء اضغط على 'تم التثبيت'.")
+        self.replace_download_button_with_installed_button(rec["version"])
+
+    def replace_download_button_with_installed_button(self, version):
+        for row in range(self.version_table.rowCount()):
+            item = self.version_table.item(row, 0)
+            if item and item.text() == str(version):
+                btn = QPushButton("تم التثبيت")
+                btn.clicked.connect(lambda _, v=version: self.mark_as_installed(v))
+                self.version_table.setCellWidget(row, 4, btn)
+                break
+
+    def mark_as_installed(self, version):
+        if any(rec["version"] == version for rec in self.history):
+            QMessageBox.information(self, "معلومات", "هذا الإصدار مثبت مسبقًا.")
+            return
+
+        # إيجاد الإصدار من الكاش لإضافته
+        match = next((rec for rec in self.cache_updates if rec["version"] == version), None)
+        if not match:
+            QMessageBox.warning(self, "خطأ", "لم يتم العثور على تفاصيل هذا الإصدار.")
+            return
+
+        self.history.insert(0, match)
+        self.save_history()
+        self.cache_updates = [rec for rec in self.cache_updates if rec["version"] != version]
+        self.status_label.setText(f"✅ تم تثبيت الإصدار {version}.")
+        self.refresh_table()
+
+
+
+class HelpDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("إرشادات البحث المنطقي")
+        self.setMinimumSize(550, 400)
+        self.setLayoutDirection(Qt.RightToLeft)  # دعم RTL
+
+        layout = QVBoxLayout(self)
+
+        browser = QTextBrowser()
+        browser.setLayoutDirection(Qt.RightToLeft)  # دعم RTL للنص داخل المتصفح
+        browser.setHtml(
+            """
+                <div style="font-family:'Segoe UI', Tahoma, sans-serif; color: #2c3e50;">
+                    <h2>🔎 إرشادات البحث المنطقي</h2>
+                    <ul style="font-size: 14px; line-height: 1.8; padding-right: 20px;">
+                        <li>
+                            
+                            للبحث عن مستند يحتوي على <u>جميع</u> الكلمات.<br/>
+                            <code style="background:#f0f0f0; padding:2px 4px;">حضانة AND نفقة</code>
+                        </li>
+                        <li>
+                            للبحث عن مستند يحتوي على <u>أي</u> من الكلمات.<br/>
+                            <code style="background:#f0f0f0; padding:2px 4px;">طلاق OR خلع</code>
+                        </li>
+                        <li>
+                            لاستثناء كلمة من النتائج.<br/>
+                            <code style="background:#f0f0f0; padding:2px 4px;">نفقة NOT حضانة</code>
+                        </li>
+                        <li>
+                            <span style="font-weight: bold;">( )</span> الأقواس:
+                            لتجميع الشروط وتحديد أولوية التنفيذ.<br/>
+                            <code style="background:#f0f0f0; padding:2px 4px;">(حضانة OR وصاية) AND أم</code>
+                        </li>
+                        <li>
+                            <span>إذا لم تستخدِم عاملًا منطقيًا، يتم افتراض</span>
+                            <span style="font-weight: bold;">AND</span> بين الكلمات.<br/>
+                            <code style="background:#f0f0f0; padding:2px 4px;">دعوى ميراث</code>
+                            <span>(أي تعني <code style="background:#f0f0f0; padding:2px 4px;">دعوى AND ميراث</code>)</span>
+                        </li>
+                        <li>
+                            <span style="font-weight: bold;">"علامات التنصيص"</span>:
+                            للبحث عن عبارة حرفية تمامًا.<br/>
+                            <code style="background:#f0f0f0; padding:2px 4px;">"النفقة الواجبة"</code>
+                        </li>
+                    </ul>
+                </div>
+            """
+        )
+        layout.addWidget(browser)
+
+        close_btn = QPushButton("إغلاق")
+        close_btn.setFixedWidth(100)
+        close_btn.clicked.connect(self.close)
+        layout.addWidget(
+            close_btn, alignment=Qt.AlignLeft
+        )  # زر الإغلاق على اليسار في RTL
+
+
+if __name__ == "__main__":
+    import sys
+
+    app = QApplication(sys.argv)
+    window = SearchApp()
+    window.show()
+    initialize_index()
+    sys.exit(app.exec_())
