@@ -30,9 +30,7 @@ wheels/
 models/
 share/python-wheels/
 *.egg-info/
-arabic-stop-words.txt
 error_log.txt
-quran.txt
 .installed.cfg
 *.egg
 MANIFEST
