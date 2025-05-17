@@ -39,4 +39,4 @@ transformers
 typing_extensions
 urllib3
 Whoosh
-
+pyinstaller

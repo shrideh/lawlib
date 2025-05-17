@@ -7,10 +7,10 @@ OutputDir=output
 OutputBaseFilename=LawLibInstaller
 Compression=lzma
 SolidCompression=yes
-SetupIconFile=icon.ico
+SetupIconFile=ico.ico
 
 [Files]
-Source: "LawLib.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\LawLib.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "how_to_use_it.html"; DestDir: "{app}"; Flags: ignoreversion
 Source: "indexdir\*"; DestDir: "{app}\indexdir"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "PDF_JSON\*"; DestDir: "{app}\PDF_JSON"; Flags: ignoreversion recursesubdirs createallsubdirs

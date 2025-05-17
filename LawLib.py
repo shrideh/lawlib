@@ -1,4 +1,5 @@
-# pyinstaller --noconfirm --onefile --windowed whoosh_PyQt5.py --icon=ico.ico
+# pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
+# gh release create v1.0.0 output/LawLibInstaller.exe --title "الإصدار الأول" --notes "هذا هو أول إصدار للمكتبة الرقمية"
 import base64
 import json
 import logging
@@ -816,6 +817,10 @@ class DeveloperDialog(QDialog):
 class UpdateCheckerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        icon_data = base64.b64decode(icon_base64)
+        pixmap = QPixmap()
+        pixmap.loadFromData(icon_data)
+        self.setWindowIcon(QIcon(pixmap))
         self.setWindowTitle("التحقق من تحديث كتب البرنامج")
         self.setLayoutDirection(Qt.RightToLeft)
         self.setMinimumSize(600, 400)
@@ -1012,40 +1017,53 @@ class HelpDialog(QDialog):
         browser.setLayoutDirection(Qt.RightToLeft)  # دعم RTL للنص داخل المتصفح
         browser.setHtml(
             """
-                <div style="font-family:'Segoe UI', Tahoma, sans-serif; color: #2c3e50;">
-                    <h2>🔎 إرشادات البحث المنطقي</h2>
-                    <ul style="font-size: 14px; line-height: 1.8; padding-right: 20px;">
-                        <li>
-                            
-                            للبحث عن مستند يحتوي على <u>جميع</u> الكلمات.<br/>
-                            <code style="background:#f0f0f0; padding:2px 4px;">حضانة AND نفقة</code>
-                        </li>
-                        <li>
-                            للبحث عن مستند يحتوي على <u>أي</u> من الكلمات.<br/>
-                            <code style="background:#f0f0f0; padding:2px 4px;">طلاق OR خلع</code>
-                        </li>
-                        <li>
-                            لاستثناء كلمة من النتائج.<br/>
-                            <code style="background:#f0f0f0; padding:2px 4px;">نفقة NOT حضانة</code>
-                        </li>
-                        <li>
-                            <span style="font-weight: bold;">( )</span> الأقواس:
-                            لتجميع الشروط وتحديد أولوية التنفيذ.<br/>
-                            <code style="background:#f0f0f0; padding:2px 4px;">(حضانة OR وصاية) AND أم</code>
-                        </li>
-                        <li>
-                            <span>إذا لم تستخدِم عاملًا منطقيًا، يتم افتراض</span>
-                            <span style="font-weight: bold;">AND</span> بين الكلمات.<br/>
-                            <code style="background:#f0f0f0; padding:2px 4px;">دعوى ميراث</code>
-                            <span>(أي تعني <code style="background:#f0f0f0; padding:2px 4px;">دعوى AND ميراث</code>)</span>
-                        </li>
-                        <li>
-                            <span style="font-weight: bold;">"علامات التنصيص"</span>:
-                            للبحث عن عبارة حرفية تمامًا.<br/>
-                            <code style="background:#f0f0f0; padding:2px 4px;">"النفقة الواجبة"</code>
-                        </li>
-                    </ul>
-                </div>
+            <div style="font-family:'Segoe UI', Tahoma, sans-serif; color: #2c3e50;">
+                <h2>🔎 إرشادات البحث المنطقي والمتقدم</h2>
+                <ul style="font-size: 14px; line-height: 1.8; padding-right: 20px;">
+                    <li>
+                        للبحث عن مستند يحتوي على <u>جميع</u> الكلمات:<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">حضانة AND نفقة</code>
+                    </li>
+                    <li>
+                        للبحث عن مستند يحتوي على <u>أي</u> من الكلمات:<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">طلاق OR خلع</code>
+                    </li>
+                    <li>
+                        لاستثناء كلمة من النتائج:<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">نفقة NOT حضانة</code>
+                    </li>
+                    <li>
+                        الأقواس () لتجميع الشروط وتحديد أولوية التنفيذ:<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">(حضانة OR وصاية) AND أم</code>
+                    </li>
+                    <li>
+                        إذا لم تُستخدم عوامل منطقية، يتم افتراض <b>AND</b>:<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">دعوى ميراث</code>
+                        <span>(تعني: <code style="background:#f0f0f0; padding:2px 4px;">دعوى AND ميراث</code>)</span>
+                    </li>
+                    <li>
+                        <b>"علامات التنصيص"</b> للبحث عن العبارة كما هي:<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">"النفقة الواجبة"</code>
+                    </li>
+                    <li>
+                        استخدام <b>*</b> للبحث بجذر الكلمة (Truncation):<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">محكم*</code> <span>(يجد: محكمة، محكمين...)</span>
+                    </li>
+                    <li>
+                        استخدام <b>?</b> للبحث مع حرف غير معروف:<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">ن?فقة</code>
+                    </li>
+                    <li>
+                        البحث التقريبي Fuzzy Matching (للكلمات القريبة):<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">طلاق~</code> أو <code style="background:#f0f0f0; padding:2px 4px;">طلاق~2</code>
+                    </li>
+                    <li>
+                        البحث بكلمات قريبة من بعضها (Proximity Search):<br/>
+                        <code style="background:#f0f0f0; padding:2px 4px;">"نفقة حضانة"~5</code>
+                        <span>(أي الكلمتان بفارق 5 كلمات كحد أقصى)</span>
+                    </li>
+                </ul>
+            </div>
             """
         )
         layout.addWidget(browser)
