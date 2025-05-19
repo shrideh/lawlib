@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
-# gh release create v1.0.0 output/LawLibInstaller.exe --title "الإصدار الأول" --notes "هذا هو أول إصدار للمكتبة الرقمية"
+# gh release create v1.0.2 output/LawLibInstaller.exe --title "الإصدار 1.0.2" --notes "🔹 تحسين على الإصدار الأول\n🔸 تم إضافة خيار 'OR' بين الكلمات لتوسيع نتائج البحث باستخدام مربع اختيار جديد."
 import base64
 import json
 import logging
@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QTextBrowser,
     QVBoxLayout,
     QWidget,
+    QCheckBox,
 )
 from whoosh.analysis import StemmingAnalyzer
 from whoosh.fields import ID, NUMERIC, Schema, TEXT
@@ -464,7 +465,6 @@ class SearchApp(QMainWindow):
     def init_ui(self):
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
-
         main_layout = QVBoxLayout(
             main_widget
         )  # Changed to QVBoxLayout, no need for splitter if only one main area
@@ -481,10 +481,13 @@ class SearchApp(QMainWindow):
         self.search_input.returnPressed.connect(
             self.search_query
         )  # Search on Enter key
+        self.use_or_checkbox = QCheckBox("او")
+        self.use_or_checkbox.setToolTip("إذا تم تفعيله، سيتم البحث باستخدام OR بين الكلمات المدخلة.")
+        
         search_btn = QPushButton("🔍 بحث")
         search_btn.clicked.connect(self.search_query)
-
         search_input_layout.addWidget(self.search_input)
+        search_input_layout.addWidget(self.use_or_checkbox)
         search_input_layout.addWidget(search_btn)
 
         self.results_browser = QTextBrowser()
@@ -495,7 +498,6 @@ class SearchApp(QMainWindow):
         search_layout.addLayout(search_input_layout)
         search_layout.addWidget(QLabel("📑 النتائج:"))
         search_layout.addWidget(self.results_browser)
-
         # No PDF viewer, so no splitter needed.
         main_layout.addWidget(search_group_widget)
 
@@ -601,7 +603,14 @@ class SearchApp(QMainWindow):
             ix = open_dir(self.index_dir)
             qp = QueryParser("content", schema=ix.schema)
             normalized_query = normalize_arabic(query_text)
-            q = qp.parse(normalized_query)
+            use_or = self.use_or_checkbox.isChecked()
+            if use_or:
+                # استخدم OR بين الكلمات
+                words = normalized_query.split()
+                joined_query = " OR ".join(words)
+                q = qp.parse(joined_query)
+            else:
+                q = qp.parse(normalized_query)
 
             with ix.searcher() as searcher:
                 results = searcher.search(q, limit=500)  # Increased limit
