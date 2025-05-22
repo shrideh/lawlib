@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
-# gh release create v1.0.2 output/LawLibInstaller.exe --title "الإصدار 1.0.2" --notes "🔹 تحسين على الإصدار الأول\n🔸 تم إضافة خيار 'OR' بين الكلمات لتوسيع نتائج البحث باستخدام مربع اختيار جديد."
+# gh release create v1.0.3 output/LawLibInstaller.exe --title "الإصدار 1.0.3" --notes "📁 أصبحت جميع الملفات تُخزن بجانب ملف البرنامج.\n🧹 إضافة زر لمسح سجل البحث من قائمة 'مساعدة'."
 import base64
 import json
 import logging
