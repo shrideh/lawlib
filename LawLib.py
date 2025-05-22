@@ -12,7 +12,7 @@ from datetime import datetime
 import webbrowser
 import certifi
 import requests
-from PyQt5.QtCore import QThread, QUrl, Qt, pyqtSignal
+from PyQt5.QtCore import QThread, QUrl, Qt, pyqtSignal, QSettings
 from PyQt5.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
     QAction,
@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
     QCheckBox,
+    QCompleter,
 )
 from whoosh.analysis import StemmingAnalyzer
 from whoosh.fields import ID, NUMERIC, Schema, TEXT
@@ -48,18 +49,18 @@ else:
     # أثناء التطوير: مسار الملف الحالي
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
-
+# جعل جميع الملفات والمجلدات بجانب ملف exe أو ملف السكربت
 DEFAULT_PDF_JSON_DIR = os.path.join(APP_DIR, "PDF_JSON")
 os.makedirs(DEFAULT_PDF_JSON_DIR, exist_ok=True)
 
-DEFAULT_DATA_DIR = os.path.join(os.environ["LOCALAPPDATA"], "LawLib")
-os.makedirs(DEFAULT_DATA_DIR, exist_ok=True)
+DEFAULT_DATA_DIR = APP_DIR  # تم تعديل مسار البيانات ليكون بجانب exe
 DEFAULT_INDEX_DIR = os.path.join(DEFAULT_DATA_DIR, "indexdir")
+os.makedirs(DEFAULT_INDEX_DIR, exist_ok=True)
+
 HISTORY_FILE_PATH = os.path.join(DEFAULT_DATA_DIR, "versions_history.json")
 
-# المسار المؤقت للمستخدم
-TEMP_DIR = tempfile.gettempdir()
-ERROR_LOG_PATH = os.path.join(TEMP_DIR, "error_log.txt")
+ERROR_LOG_PATH = os.path.join(DEFAULT_DATA_DIR, "error_log.txt")
+
 logging.basicConfig(
     filename=ERROR_LOG_PATH,
     level=logging.ERROR,
@@ -458,6 +459,10 @@ class SearchApp(QMainWindow):
         pixmap.loadFromData(icon_data)
         self.setWindowIcon(QIcon(pixmap))
         self.index_dir = DEFAULT_INDEX_DIR
+        self.settings = QSettings("Shari3aLawApp", "SearchApp")
+        self.search_history = self.settings.value("search_history", [], type=list)
+        self.completer = QCompleter(self.search_history)
+        self.completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.last_search_results_html = ""  # Initialize variable to store HTML results
         self.init_ui()
         self.center_on_screen()
@@ -477,6 +482,7 @@ class SearchApp(QMainWindow):
 
         search_input_layout = QHBoxLayout()
         self.search_input = QLineEdit()
+        self.search_input.setCompleter(self.completer)
         self.search_input.setPlaceholderText("أدخل كلمة البحث هنا...")
         self.search_input.returnPressed.connect(
             self.search_query
@@ -522,6 +528,11 @@ class SearchApp(QMainWindow):
         index_action.setShortcut("Ctrl+I")
         index_action.triggered.connect(self.open_index_dialog)
         file_menu.addAction(index_action)
+        clear_history_action = QAction("مسح سجل البحث", self)
+        clear_history_action.setShortcut("Ctrl+Shift+Del")
+        clear_history_action.setStatusTip("حذف سجل كلمات البحث السابقة.")
+        clear_history_action.triggered.connect(self.clear_search_history)
+        help_menu.addAction(clear_history_action)
         dev_mode_action = QAction("المطور", self)
         dev_mode_action.setShortcut("Ctrl+D")
         dev_mode_action.triggered.connect(self.open_developer_dialog)
@@ -540,6 +551,20 @@ class SearchApp(QMainWindow):
         x = (screen_geometry.width() - self.width()) // 2
         y = (screen_geometry.height() - self.height()) // 2
         self.move(x, y)
+
+    def clear_search_history(self):
+        confirm = QMessageBox.question(
+            self,
+            "تأكيد الحذف",
+            "هل أنت متأكد من أنك تريد مسح سجل البحث؟",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if confirm == QMessageBox.Yes:
+            self.search_history = []
+            self.settings.setValue("search_history", self.search_history)
+            self.completer.model().setStringList(self.search_history)
+            QMessageBox.information(self, "تم", "تم مسح سجل البحث بنجاح.")
 
     def open_developer_dialog(self):
         dialog = DeveloperDialog(self)
@@ -576,7 +601,10 @@ class SearchApp(QMainWindow):
             # Clear previous results if search input is empty
             self.last_search_results_html = ""
             return
-
+        if query_text not in self.search_history:
+            self.search_history.append(query_text)
+            self.settings.setValue("search_history", self.search_history)
+            self.completer.model().setStringList(self.search_history)
         self.results_browser.clear()
         self.statusBar().showMessage(f"⏳ جارٍ البحث عن: {query_text}...")
 
