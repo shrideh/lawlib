@@ -10,7 +10,7 @@ SolidCompression=yes
 SetupIconFile=ico.ico
 
 [Files]
-Source: "dist\LawLib.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "LawLib.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "how_to_use_it.html"; DestDir: "{app}"; Flags: ignoreversion
 ; Source: "nlp\*"; DestDir: "{app}\nlp"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -21,3 +21,6 @@ Name: "{group}\LawLib"; Filename: "{app}\LawLib.exe"
 Name: "{commondesktop}\LawLib"; Filename: "{app}\LawLib.exe"
 ; اختصار لإلغاء التثبيت في قائمة ابدأ
 Name: "{group}\Uninstall LawLib"; Filename: "{uninstallexe}"
+
+[Run]
+Filename: "{app}\LawLib.exe"; Description: "تشغيل البرنامج بعد التثبيت"; Flags: nowait postinstall skipifsilent

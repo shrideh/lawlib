@@ -1,4 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
+# nuitka LawLib.py --standalone --enable-plugin=pyqt5 --nofollow-import-to=test,unittest,distutils,pydoc --windows-icon-from-ico=ico.ico --lto=yes --remove-output --windows-console-mode=disable
 # gh release create v1.0.4 output/LawLibInstaller.exe --title "الإصدار 1.0.4" --notes "📁 أصبحت جميع الملفات تُخزن بجانب ملف البرنامج.\n🧹 إضافة زر لمسح سجل البحث من قائمة 'مساعدة'."
 import base64
 import json
