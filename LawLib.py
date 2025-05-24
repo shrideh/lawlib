@@ -11,6 +11,9 @@ nuitka LawLib.py `
   --lto=yes `
   --module-parameter=torch-disable-jit=yes `
   --remove-output
+
+nuitka LawLib.py --standalone --enable-plugin=tk-inter --nofollow-import-to=test,unittest,distutils,email,logging,pydoc --windows-icon-from-ico=ico.ico --windows-console-mode=disable --lto=yes --module-parameter=torch-disable-jit=yes --remove-output
+
 '''
 import base64
 import json
