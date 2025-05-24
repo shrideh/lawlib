@@ -1,10 +1,10 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
+# nuitka LawLib.py --standalone --onefile --enable-plugin=tk-inter --nofollow-import-to=test,unittest,distutils,email --remove-output --windows-icon-from-ico=ico.ico --windows-console-mode=disable
 # gh release create v1.0.3 output/LawLibInstaller.exe --title "الإصدار 1.0.3" --notes "📁 أصبحت جميع الملفات تُخزن بجانب ملف البرنامج.\n🧹 إضافة زر لمسح سجل البحث من قائمة 'مساعدة'."
 import base64
 import json
 import logging
 import os
-import tempfile
 import shutil
 import subprocess
 import sys
@@ -18,7 +18,6 @@ from PyQt5.QtWidgets import (
     QAction,
     QApplication,
     QDialog,
-    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,6 +48,10 @@ else:
     # أثناء التطوير: مسار الملف الحالي
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
+
+DEFAULT_LOG_DIR = os.path.join(APP_DIR, "log")
+os.makedirs(DEFAULT_LOG_DIR, exist_ok=True)
+
 # جعل جميع الملفات والمجلدات بجانب ملف exe أو ملف السكربت
 DEFAULT_PDF_JSON_DIR = os.path.join(APP_DIR, "PDF_JSON")
 os.makedirs(DEFAULT_PDF_JSON_DIR, exist_ok=True)
@@ -57,9 +60,9 @@ DEFAULT_DATA_DIR = APP_DIR  # تم تعديل مسار البيانات ليكو
 DEFAULT_INDEX_DIR = os.path.join(DEFAULT_DATA_DIR, "indexdir")
 os.makedirs(DEFAULT_INDEX_DIR, exist_ok=True)
 
-HISTORY_FILE_PATH = os.path.join(DEFAULT_DATA_DIR, "versions_history.json")
+HISTORY_FILE_PATH = os.path.join(DEFAULT_DATA_DIR, "log/versions_history.json")
 
-ERROR_LOG_PATH = os.path.join(DEFAULT_DATA_DIR, "error_log.txt")
+ERROR_LOG_PATH = os.path.join(DEFAULT_DATA_DIR, "log/error_log.txt")
 
 logging.basicConfig(
     filename=ERROR_LOG_PATH,
@@ -528,6 +531,11 @@ class SearchApp(QMainWindow):
         index_action.setShortcut("Ctrl+I")
         index_action.triggered.connect(self.open_index_dialog)
         file_menu.addAction(index_action)
+        process_pdf_action = QAction("معالجة ملفات PDF...", self)
+        process_pdf_action.setShortcut("Ctrl+P")
+        process_pdf_action.setStatusTip("اختيار ملفات PDF لمعالجتها وتحويلها إلى نصوص مفهرسة.")
+        process_pdf_action.triggered.connect(self.open_pdf_processor)
+        file_menu.addAction(process_pdf_action)
         clear_history_action = QAction("مسح سجل البحث", self)
         clear_history_action.setShortcut("Ctrl+Shift+Del")
         clear_history_action.setStatusTip("حذف سجل كلمات البحث السابقة.")
@@ -545,6 +553,11 @@ class SearchApp(QMainWindow):
         file_menu.addAction(exit_action)
 
         self.statusBar().showMessage("جاهز.")
+    
+    def open_pdf_processor(self):
+        from pdf_processor_dialog import PDFProcessingDialog
+        dialog = PDFProcessingDialog(self)
+        dialog.exec_()
 
     def center_on_screen(self):
         screen_geometry = QApplication.primaryScreen().availableGeometry()

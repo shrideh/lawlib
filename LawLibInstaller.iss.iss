@@ -12,8 +12,7 @@ SetupIconFile=ico.ico
 [Files]
 Source: "dist\LawLib.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "how_to_use_it.html"; DestDir: "{app}"; Flags: ignoreversion
-Source: "indexdir\*"; DestDir: "{app}\indexdir"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "PDF_JSON\*"; DestDir: "{app}\PDF_JSON"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "nlp\*"; DestDir: "{app}\nlp"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; اختصار في قائمة ابدأ

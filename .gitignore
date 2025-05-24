@@ -27,6 +27,7 @@ sdist/
 win_exe/
 var/
 wheels/
+nlp/
 models/
 share/python-wheels/
 *.egg-info/
@@ -231,3 +232,4 @@ icon.png
 versions_history.json
 innosetup-6.4.3.exe
 LawLibInstaller.exe
+.vscode/settings.json
