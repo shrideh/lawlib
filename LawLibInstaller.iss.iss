@@ -10,9 +10,8 @@ SolidCompression=yes
 SetupIconFile=ico.ico
 
 [Files]
-Source: "LawLib.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\LawLib.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "how_to_use_it.html"; DestDir: "{app}"; Flags: ignoreversion
-; Source: "nlp\*"; DestDir: "{app}\nlp"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; اختصار في قائمة ابدأ
