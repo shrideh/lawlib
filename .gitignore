@@ -10,7 +10,8 @@ __pycache__/
 
 # C extensions
 *.so
-
+LawLib.build/
+LawLib.dist/
 # Distribution / packaging
 .Python
 build/
