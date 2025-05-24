@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
-# gh release create v1.0.4 output/LawLibInstaller.exe --title "الإصدار 1.0.4" --notes "📁 أصبحت جميع الملفات تُخزن بجانب ملف البرنامج.\n🧹 إضافة زر لمسح سجل البحث من قائمة 'مساعدة'."
+# gh release create v1.0.4 output/LawLibInstaller.exe --title "الإصدار 1.0.4" --notes "تنظيم ملف الوج"
 import base64
 import json
 import logging
