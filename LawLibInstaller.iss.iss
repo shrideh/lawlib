@@ -1,6 +1,6 @@
 [Setup]
 AppName=LawLib
-AppVersion=1.1.0
+AppVersion=1.0.4
 DefaultDirName={localappdata}\LawLib
 DefaultGroupName=LawLib
 OutputDir=output
@@ -12,7 +12,7 @@ SetupIconFile=ico.ico
 [Files]
 Source: "dist\LawLib.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "how_to_use_it.html"; DestDir: "{app}"; Flags: ignoreversion
-Source: "nlp\*"; DestDir: "{app}\nlp"; Flags: ignoreversion recursesubdirs createallsubdirs
+; Source: "nlp\*"; DestDir: "{app}\nlp"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; اختصار في قائمة ابدأ

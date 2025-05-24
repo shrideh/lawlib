@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
-# gh release create v1.1.0 output/LawLibInstaller.exe --title "الإصدار 1.1.0" --notes "📁 أصبحت جميع الملفات تُخزن بجانب ملف البرنامج.\n🧹 إضافة زر لمسح سجل البحث من قائمة 'مساعدة'."
+# gh release create v1.0.4 output/LawLibInstaller.exe --title "الإصدار 1.0.4" --notes "📁 أصبحت جميع الملفات تُخزن بجانب ملف البرنامج.\n🧹 إضافة زر لمسح سجل البحث من قائمة 'مساعدة'."
 import base64
 import json
 import logging
@@ -530,11 +530,6 @@ class SearchApp(QMainWindow):
         index_action.setShortcut("Ctrl+I")
         index_action.triggered.connect(self.open_index_dialog)
         file_menu.addAction(index_action)
-        process_pdf_action = QAction("معالجة ملفات PDF...", self)
-        process_pdf_action.setShortcut("Ctrl+P")
-        process_pdf_action.setStatusTip("اختيار ملفات PDF لمعالجتها وتحويلها إلى نصوص مفهرسة.")
-        process_pdf_action.triggered.connect(self.open_pdf_processor)
-        file_menu.addAction(process_pdf_action)
         clear_history_action = QAction("مسح سجل البحث", self)
         clear_history_action.setShortcut("Ctrl+Shift+Del")
         clear_history_action.setStatusTip("حذف سجل كلمات البحث السابقة.")
@@ -553,10 +548,6 @@ class SearchApp(QMainWindow):
 
         self.statusBar().showMessage("جاهز.")
     
-    def open_pdf_processor(self):
-        from pdf_processor_dialog import PDFProcessingDialog
-        dialog = PDFProcessingDialog(self)
-        dialog.exec_()
 
     def center_on_screen(self):
         screen_geometry = QApplication.primaryScreen().availableGeometry()
