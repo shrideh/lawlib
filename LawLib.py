@@ -1,15 +1,15 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
 # gh release create v1.0.3 output/LawLibInstaller.exe --title "الإصدار 1.0.3" --notes "📁 أصبحت جميع الملفات تُخزن بجانب ملف البرنامج.\n🧹 إضافة زر لمسح سجل البحث من قائمة 'مساعدة'."
 '''
-nuitka LawLib.py ^
-  --standalone ^
-  --onefile ^
-  --enable-plugin=tk-inter ^
-  --nofollow-import-to=test,unittest,distutils,email,logging,pydoc ^
-  --windows-icon-from-ico=ico.ico ^
-  --windows-console-mode=disable ^
-  --lto=yes ^
-  --module-parameter=torch-disable-jit=yes ^
+nuitka LawLib.py `
+  --standalone `
+  --onefile `
+  --enable-plugin=tk-inter `
+  --nofollow-import-to=test,unittest,distutils,email,logging,pydoc `
+  --windows-icon-from-ico=ico.ico `
+  --windows-console-mode=disable `
+  --lto=yes `
+  --module-parameter=torch-disable-jit=yes `
   --remove-output
 '''
 import base64
