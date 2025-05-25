@@ -8,7 +8,6 @@ import re
 import shutil
 import warnings
 
-
 import cv2
 from PIL import Image
 import pytesseract as tess
@@ -21,6 +20,13 @@ from pyarabic.araby import strip_tashkeel, strip_tatweel
 from sklearn.feature_extraction.text import TfidfVectorizer
 from nltk.tokenize import word_tokenize
 
+# Load configuration
+from pdf_processor_gui import load_config
+CONFIG = load_config()
+TESSERACT_CMD = os.path.join(CONFIG['nlp_dir'], 'tesseract-portable', 'tesseract.exe')
+POPPLER_PATH = os.path.join(CONFIG['nlp_dir'], 'poppler', 'bin')
+PDF_JSON_DIR = CONFIG['pdf_json_dir']
+TMP_DIR = os.path.join(CONFIG.get('data_dir', os.getcwd()), 'tmp')
 
 # إعدادات التحذيرات واللوجر
 warnings.filterwarnings("ignore", category=UserWarning)
@@ -32,7 +38,7 @@ logging.basicConfig(
 )
 
 # إعداد مسار tesseract الخاص بك
-tess.pytesseract.tesseract_cmd = os.path.join(os.getcwd(), "nlp", "tesseract-portable", "tesseract.exe")
+tess.pytesseract.tesseract_cmd = TESSERACT_CMD
 
 
 def sha512_exists_in_index(index_dir, sha_value):
@@ -49,12 +55,12 @@ def sha512_exists_in_index(index_dir, sha_value):
 
 
 def load_stop_words():
-    with open("nlp/arabic-stop-words.txt", "r", encoding="utf-8") as f:
+    with open(os.path.join(CONFIG['nlp_dir'], "arabic-stop-words.txt"), "r", encoding="utf-8") as f:
         return set(line.strip() for line in f)
 
 
 def load_quran_words():
-    with open("nlp/quran.txt", "r", encoding="utf-8") as f:
+    with open(os.path.join(CONFIG['nlp_dir'], "quran.txt"), "r", encoding="utf-8") as f:
         return set(line.strip() for line in f)
 
 
@@ -95,7 +101,7 @@ def calculate_sha512(fp):
     return sha.hexdigest()
 
 
-def ensure_pdf_directory_structure(base_dir="PDF_JSON", max_files_per_folder=200):
+def ensure_pdf_directory_structure(base_dir=PDF_JSON_DIR, max_files_per_folder=200):
     if not os.path.exists(base_dir):
         os.makedirs(base_dir)
 
@@ -132,7 +138,7 @@ def save_pdf_thumbnail(pdf_path, output_folder, width=600):
     try:
         imgs = convert_from_path(
             pdf_path,
-            poppler_path="nlp/poppler/bin",
+            poppler_path=POPPLER_PATH,
             fmt="JPEG",
             use_pdftocairo=True,
             dpi=300,
@@ -197,7 +203,7 @@ def process_pdf(filepath, index_dir):
             logging.error(f"تم تخطي الملف المكرر بناءً على SHA512: {filepath}")
             return
 
-        info = pdfinfo_from_path(filepath, poppler_path="nlp/poppler/bin")
+        info = pdfinfo_from_path(filepath, poppler_path=POPPLER_PATH)
         num_pages = info.get("Pages", 0)
         contents = []
         all_text = ""
@@ -206,7 +212,7 @@ def process_pdf(filepath, index_dir):
         for page in range(1, num_pages + 1):
             imgs = convert_from_path(
                 filepath,
-                poppler_path="nlp/poppler/bin",
+                poppler_path=POPPLER_PATH,
                 fmt="jpeg",
                 use_pdftocairo=True,
                 dpi=600,
@@ -217,8 +223,8 @@ def process_pdf(filepath, index_dir):
             if not imgs:
                 continue
             img = imgs[0]
-            temp_path = os.path.join("tmp", f"{uuid.uuid4()}.jpg")
-            os.makedirs("tmp", exist_ok=True)
+            os.makedirs(TMP_DIR, exist_ok=True)
+            temp_path = os.path.join(TMP_DIR, f"{uuid.uuid4()}.jpg")
             img.save(temp_path, "JPEG")
             img.close()
 
@@ -232,7 +238,7 @@ def process_pdf(filepath, index_dir):
             del imgs
             gc.collect()
 
-        folder, num = ensure_pdf_directory_structure(base_dir="PDF_JSON")
+        folder, num = ensure_pdf_directory_structure()
         new_pdf = os.path.join(folder, f"{num}.pdf")
         shutil.move(filepath, new_pdf)
 
