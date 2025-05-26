@@ -1,0 +1,6 @@
+{
+    "data_dir": "E:\\lawlib",
+    "index_dir": "E:/lawlib/dist/indexdir",
+    "nlp_dir": "E:\\lawlib\\nlp",
+    "pdf_json_dir": "E:\\lawlib\\PDF_JSON"
+}

@@ -7,7 +7,8 @@ import gc
 import re
 import shutil
 import warnings
-
+from pathlib import Path
+import sys
 import cv2
 from PIL import Image
 import pytesseract as tess
@@ -17,28 +18,41 @@ from whoosh.index import open_dir
 from whoosh.qparser import QueryParser
 from pyarabic.araby import strip_tashkeel, strip_tatweel
 
-from sklearn.feature_extraction.text import TfidfVectorizer
-from nltk.tokenize import word_tokenize
-
 # Load configuration
 from pdf_processor_gui import load_config
-CONFIG = load_config()
-TESSERACT_CMD = os.path.join(CONFIG['nlp_dir'], 'tesseract-portable', 'tesseract.exe')
-POPPLER_PATH = os.path.join(CONFIG['nlp_dir'], 'poppler', 'bin')
-PDF_JSON_DIR = CONFIG['pdf_json_dir']
-TMP_DIR = os.path.join(CONFIG.get('data_dir', os.getcwd()), 'tmp')
 
-# إعدادات التحذيرات واللوجر
+# --- تحديد مجلد التطبيق سواء في الوضع العادي أو التنفيذي ---
+if getattr(sys, 'frozen', False):
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+
+# تحميل الإعدادات
+CONFIG = load_config()
+
+# تحويل المسارات إلى pathlib.Path مع قيم افتراضية
+NLP_DIR       = Path(CONFIG.get('nlp_dir', BASE_DIR / 'nlp'))
+DATA_DIR      = Path(CONFIG.get('data_dir', BASE_DIR))
+TESSERACT_CMD = NLP_DIR / 'tesseract-portable' / 'tesseract.exe'
+POPPLER_PATH  = NLP_DIR / 'poppler' / 'bin'
+PDF_JSON_DIR  = Path(CONFIG.get('pdf_json_dir', BASE_DIR / 'PDF_JSON'))
+TMP_DIR       = DATA_DIR / 'tmp'
+
+# إعدادات التحذيرات
 warnings.filterwarnings("ignore", category=UserWarning)
 
+# إعداد اللوجر
+LOG_DIR = BASE_DIR / 'log'
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / 'pdf_processing_errors.log'
 logging.basicConfig(
-    filename="log/pdf_processing_errors.log",
-    level=logging.ERROR,
+    filename=str(LOG_FILE),
+    level=logging.DEBUG,
     format="%(asctime)s - %(levelname)s - %(message)s",
 )
 
 # إعداد مسار tesseract الخاص بك
-tess.pytesseract.tesseract_cmd = TESSERACT_CMD
+tess.pytesseract.tesseract_cmd = str(TESSERACT_CMD)
 
 
 def sha512_exists_in_index(index_dir, sha_value):
@@ -47,21 +61,28 @@ def sha512_exists_in_index(index_dir, sha_value):
         with ix.searcher() as searcher:
             parser = QueryParser("sha512", schema=ix.schema)
             query = parser.parse(f'"{sha_value}"')
-            results = searcher.search(query, limit=1)
-            return len(results) > 0
+            return bool(searcher.search(query, limit=1))
     except Exception as e:
         logging.error(f"تعذر التحقق من SHA512 في الفهرس: {e}")
         return False
 
 
 def load_stop_words():
-    with open(os.path.join(CONFIG['nlp_dir'], "arabic-stop-words.txt"), "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f)
+    try:
+        path = NLP_DIR / "arabic-stop-words.txt"
+        return set(path.read_text(encoding="utf-8").splitlines())
+    except Exception as e:
+        logging.error(f"Failed loading stop words: {e}")
+        return set()
 
 
 def load_quran_words():
-    with open(os.path.join(CONFIG['nlp_dir'], "quran.txt"), "r", encoding="utf-8") as f:
-        return set(line.strip() for line in f)
+    try:
+        path = NLP_DIR / "quran.txt"
+        return set(path.read_text(encoding="utf-8").splitlines())
+    except Exception as e:
+        logging.error(f"Failed loading quran words: {e}")
+        return set()
 
 
 def clean_text(text):
@@ -69,28 +90,37 @@ def clean_text(text):
     quran_words = load_quran_words()
     words_to_remove = stop_words | quran_words
 
-    text = re.sub(r"[^\w\s\u0600-\u06FF]", "", text)
+    # إزالة علامات التشكيل والأرقام والرموز
     text = re.sub(r"[0-9٠-٩]", "", text)
     text = strip_tashkeel(text)
     text = strip_tatweel(text)
-    words = text.split()
-    cleaned = [w for w in words if w not in words_to_remove and 3 <= len(w) <= 10]
-    return re.sub(r"\s+", " ", " ".join(cleaned)).strip()
+    text = re.sub(r"[^\w\s\u0600-\u06FF]", " ", text)
+
+    # تقسيم النص على الفراغات وتصفيته
+    words = [w for w in text.split() if w not in words_to_remove and 3 <= len(w) <= 15]
+    return " ".join(words)
 
 
 def preprocess_image(image_path):
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
     _, threshed = cv2.threshold(img, 150, 255, cv2.THRESH_BINARY)
     return Image.fromarray(threshed)
 
 
-def img_to_txt(image_path):
+def img_to_txt(image_path, page_num=None):
     img = preprocess_image(image_path)
     if img.width > 2000:
         img = img.resize((img.width // 2, img.height // 2))
-    text = tess.image_to_string(img, lang="ara", config="--psm 6")
+
+    # استخراج النص الخام وتسجيله
+    raw = tess.image_to_string(img, lang="ara", config="--psm 6")
+    if page_num is not None:
+        logging.debug(f"Raw OCR (page {page_num}): {raw!r}")
+    else:
+        logging.debug(f"Raw OCR: {raw!r}")
+
     img.close()
-    return clean_text(text)
+    return clean_text(raw)
 
 
 def calculate_sha512(fp):
@@ -102,43 +132,36 @@ def calculate_sha512(fp):
 
 
 def ensure_pdf_directory_structure(base_dir=PDF_JSON_DIR, max_files_per_folder=200):
-    if not os.path.exists(base_dir):
-        os.makedirs(base_dir)
+    try:
+        base_dir = Path(base_dir)
+        base_dir.mkdir(parents=True, exist_ok=True)
 
-    subs = [
-        d for d in os.listdir(base_dir)
-        if os.path.isdir(os.path.join(base_dir, d)) and d.isdigit()
-    ]
-    if not subs:
-        first = os.path.join(base_dir, "1")
-        os.makedirs(first)
-        return first, 1
+        subs = [p for p in base_dir.iterdir() if p.is_dir() and p.name.isdigit()]
+        if not subs:
+            new = base_dir / '1'
+            new.mkdir()
+            return new, 1
 
-    subs.sort(key=lambda x: int(x))
-    latest = subs[-1]
-    folder_path = os.path.join(base_dir, latest)
+        latest = max(subs, key=lambda p: int(p.name))
+        nums = [int(p.stem) for p in latest.iterdir() if p.suffix in ('.pdf', '.json') and p.stem.isdigit()]
 
-    existing_nums = set()
-    for fname in os.listdir(folder_path):
-        name, ext = os.path.splitext(fname)
-        if ext.lower() in (".pdf", ".json") and name.isdigit():
-            existing_nums.add(int(name))
+        if len(nums) >= max_files_per_folder:
+            new = base_dir / str(int(latest.name) + 1)
+            new.mkdir()
+            return new, 1
 
-    if len(existing_nums) >= max_files_per_folder:
-        new_folder = str(int(latest) + 1)
-        new_path = os.path.join(base_dir, new_folder)
-        os.makedirs(new_path)
-        return new_path, 1
-
-    next_index = max(existing_nums) + 1 if existing_nums else 1
-    return folder_path, next_index
+        idx = max(nums, default=0) + 1
+        return latest, idx
+    except Exception as e:
+        logging.error(f"Error ensuring directory structure: {e}")
+        return Path(base_dir), 1
 
 
 def save_pdf_thumbnail(pdf_path, output_folder, width=600):
     try:
         imgs = convert_from_path(
-            pdf_path,
-            poppler_path=POPPLER_PATH,
+            str(pdf_path),
+            poppler_path=str(POPPLER_PATH),
             fmt="JPEG",
             use_pdftocairo=True,
             dpi=300,
@@ -147,117 +170,89 @@ def save_pdf_thumbnail(pdf_path, output_folder, width=600):
             last_page=1,
         )
         if not imgs:
-            logging.error(f"❌ لم يتم استخراج صورة من الصفحة الأولى في {pdf_path} - لا توجد صور.")
+            logging.error(f"❌ لم يتم استخراج صورة من الصفحة الأولى في {pdf_path}")
             return None
 
         img = imgs[0]
-        ar = img.height / img.width
-        thumb = img.resize((width, int(width * ar)))
-        num = os.path.splitext(os.path.basename(pdf_path))[0]
-        thumb_path = os.path.join(output_folder, f"{num}.jpg")
-        thumb.save(thumb_path, "JPEG", quality=100)
+        thumb = img.resize((width, int(width * img.height / img.width)))
+        dest = Path(output_folder) / f"{Path(pdf_path).stem}.jpg"
+        thumb.save(dest, "JPEG", quality=85)
         img.close()
         thumb.close()
-        logging.info(f"✅ تم حفظ الصورة المصغرة بنجاح في {thumb_path}")
-        return thumb_path
-
+        logging.info(f"✅ حفظ الصورة المصغرة في {dest}")
+        return str(dest)
     except Exception as e:
-        logging.error(f"❌ خطأ أثناء استخراج الصورة المصغرة من {pdf_path}: {e}")
+        logging.error(f"❌ خطأ في save_pdf_thumbnail: {e}")
         return None
 
 
-def generate_wordcloud(text, min_word_length=3, max_words=10):
-    text = re.sub(r'[^\u0600-\u06FF\s]', '', text)
-    words = word_tokenize(text)
-    filtered_words = [word for word in words if len(word) >= min_word_length]
-    if not filtered_words:
-        return {}
-    filtered_text = ' '.join(filtered_words)
-    vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform([filtered_text])
-    tfidf_scores = dict(zip(vectorizer.get_feature_names_out(), tfidf_matrix.toarray()[0]))
-    sorted_words = sorted(tfidf_scores.items(), key=lambda item: item[1], reverse=True)
-    return dict(sorted_words[:max_words])
-
-
-def extract_book_title_from_first_page(text, wordcloud_data):
-    lines = text.strip().split("\n")
-    lines = [line.strip() for line in lines if line.strip()]
-
-    for line in lines[:5]:
-        if len(line.split()) >= 3 and 10 <= len(line) <= 100:
-            return line
-
-    sorted_words = sorted(wordcloud_data.items(), key=lambda x: x[1], reverse=True)
-    top_keywords = [word for word, _ in sorted_words[:5]]
-    if top_keywords:
-        return " - ".join(top_keywords)
-
-    return "عنوان غير معروف"
+def extract_book_title_from_first_page(text, filepath=None):
+    try:
+        lines = [l.strip() for l in text.splitlines() if l.strip()]
+        for line in lines[:3]:
+            if 5 <= len(line.split()) <= 12:
+                return line
+        return Path(filepath).stem if filepath else "عنوان غير معروف"
+    except Exception as e:
+        logging.error(f"Error extracting title: {e}")
+        return Path(filepath).stem if filepath else "عنوان غير معروف"
 
 
 def process_pdf(filepath, index_dir):
     try:
         sha = calculate_sha512(filepath)
         if sha512_exists_in_index(index_dir, sha):
-            logging.error(f"تم تخطي الملف المكرر بناءً على SHA512: {filepath}")
+            logging.info(f"تخطي مكرر: {filepath}")
             return
 
-        info = pdfinfo_from_path(filepath, poppler_path=POPPLER_PATH)
-        num_pages = info.get("Pages", 0)
+        info = pdfinfo_from_path(str(filepath), poppler_path=str(POPPLER_PATH))
+        total_pages = info.get("Pages", 0)
         contents = []
-        all_text = ""
         first_page_text = ""
 
-        for page in range(1, num_pages + 1):
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
+        for page in range(1, total_pages + 1):
             imgs = convert_from_path(
-                filepath,
-                poppler_path=POPPLER_PATH,
-                fmt="jpeg",
-                use_pdftocairo=True,
-                dpi=600,
-                thread_count=1,
-                first_page=page,
-                last_page=page,
+                str(filepath), poppler_path=str(POPPLER_PATH), fmt="JPEG",
+                use_pdftocairo=True, dpi=300,
+                first_page=page, last_page=page
             )
             if not imgs:
                 continue
-            img = imgs[0]
-            os.makedirs(TMP_DIR, exist_ok=True)
-            temp_path = os.path.join(TMP_DIR, f"{uuid.uuid4()}.jpg")
-            img.save(temp_path, "JPEG")
-            img.close()
-
-            text = img_to_txt(temp_path)
+            tmp_img = TMP_DIR / f"{uuid.uuid4()}.jpg"
+            imgs[0].save(tmp_img, "JPEG")
+            # استخراج النص وتنظيفه
+            text = img_to_txt(tmp_img, page_num=page)
             if page == 1:
                 first_page_text = text
-            all_text += text + " "
-            contents.append({"page": page, "text": text})
-            os.remove(temp_path)
-
-            del imgs
+            # إضافة إلى القائمة
+            contents.append({
+                "page": page,
+                "text": text
+            })
+            tmp_img.unlink()
             gc.collect()
 
-        folder, num = ensure_pdf_directory_structure()
-        new_pdf = os.path.join(folder, f"{num}.pdf")
-        shutil.move(filepath, new_pdf)
+        # نقل PDF وبناء JSON
+        folder, idx = ensure_pdf_directory_structure()
+        dest_pdf = folder / f"{idx}.pdf"
+        shutil.move(filepath, dest_pdf)
 
-        json_path = os.path.join(folder, f"{num}.json")
-        data = {"sha512": sha, "contents": contents}
-        with open(json_path, "w", encoding="utf-8") as json_file:
-            json.dump(data, json_file, ensure_ascii=False, indent=4)
+        book_title = extract_book_title_from_first_page(first_page_text, filepath)
+        json_data = {
+            "sha512": sha,
+            "book_name": book_title,
+            "contents": contents
+        }
+        json_file = folder / f"{idx}.json"
+        json_file.write_text(
+            json.dumps(json_data, ensure_ascii=False, indent=4),
+            encoding='utf-8'
+        )
 
-        wordcloud_data = generate_wordcloud(all_text, min_word_length=3, max_words=10)
-        book_title = extract_book_title_from_first_page(first_page_text, wordcloud_data)
-
-        data["book_name"] = book_title
-        with open(json_path, "w", encoding="utf-8") as json_file:
-            json.dump(data, json_file, ensure_ascii=False, indent=4)
-
-        save_pdf_thumbnail(new_pdf, folder)
-
-        logging.info(f"✅ تم معالجة الملف: {new_pdf}، عنوان الكتاب: {book_title}")
-
+        save_pdf_thumbnail(dest_pdf, folder)
+        logging.info(f"✅ processed: {dest_pdf}, title: {book_title}")
     except Exception as e:
         logging.error(f"❌ خطأ أثناء معالجة {filepath}: {e}")
+
 

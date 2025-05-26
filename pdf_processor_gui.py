@@ -1,74 +1,94 @@
-
+# pyinstaller --noconfirm --onefile --windowed --icon=ico.ico pdf_processor_gui.py
 import sys
 import os
+from pathlib import Path
 import json
+import logging
 from PyQt5.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QLabel, QPushButton,
     QFileDialog, QProgressBar, QHBoxLayout, QSpinBox, QWidget,
-    QFormLayout, QLineEdit, QMessageBox, QTabWidget
+    QFormLayout, QLineEdit, QMessageBox, QTabWidget, QPlainTextEdit
 )
 from PyQt5.QtCore import pyqtSignal, QThread, QObject, Qt
 import concurrent.futures
 
-# ---- Config Management ----
-CONFIG_FILE = os.path.join(
-    os.path.dirname(os.path.abspath(__file__)), 'config.json'
+# ---- Determine Base Directory ----
+# If frozen by PyInstaller, use the executable's folder, else use script's folder
+if getattr(sys, 'frozen', False):
+    BASE_DIR = Path(sys.executable).resolve().parent
+else:
+    BASE_DIR = Path(__file__).resolve().parent
+
+# ---- Logging Configuration ----
+LOG_DIR = BASE_DIR / 'log'
+LOG_DIR.mkdir(exist_ok=True)
+LOG_FILE = LOG_DIR / 'pdf_processing_errors.log'
+logging.basicConfig(
+    filename=str(LOG_FILE),
+    level=logging.ERROR,
+    format='%(asctime)s - %(levelname)s - %(message)s',
 )
+
+# ---- Config Management ----
+# Store config.json next to the executable/script (writable in frozen app) or
+# optionally move to user directory (e.g., Path.home()/'.myapp')
+CONFIG_FILE = BASE_DIR / 'config.json'
+
+
 def load_config():
     default = {
-        "data_dir": os.path.dirname(os.path.abspath(__file__)),
-        "index_dir": os.path.join(os.getcwd(), 'indexdir'),
-        "nlp_dir": os.path.join(os.getcwd(), 'nlp'),
-        "pdf_json_dir": os.path.join(os.getcwd(), 'PDF_JSON')
+        "data_dir": str(BASE_DIR),
+        "index_dir": str(BASE_DIR / 'indexdir'),
+        "nlp_dir": str(BASE_DIR / 'nlp'),
+        "pdf_json_dir": str(BASE_DIR / 'PDF_JSON')
     }
-    if not os.path.exists(CONFIG_FILE):
+    if not CONFIG_FILE.exists():
         save_config(default)
         return default
     try:
-        with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-            cfg = json.load(f)
-        # ensure keys
+        cfg = json.loads(CONFIG_FILE.read_text(encoding='utf-8'))
+        # ensure all keys exist
         for k, v in default.items():
             cfg.setdefault(k, v)
         return cfg
-    except Exception:
+    except Exception as e:
+        logging.error(f"Failed loading config: {e}")
         save_config(default)
         return default
+
 
 def save_config(cfg):
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(cfg, f, ensure_ascii=False, indent=4)
     except Exception as e:
-        print(f"Failed saving config: {e}")
+        logging.error(f"Failed saving config: {e}")
 
-# Load config globally
+# Load and prepare directories
 CONFIG = load_config()
-
-# Ensure directories from config
 for key in ('index_dir', 'pdf_json_dir'):
-    os.makedirs(CONFIG[key], exist_ok=True)
+    try:
+        Path(CONFIG[key]).mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        logging.error(f"Failed creating directory for {key}: {e}")
+
 
 # ---- PDF Filtering Function ----
 def filter_unique_pdfs(folder_path, index_dir, log_func=lambda msg: None):
     from main_pdf_processor import calculate_sha512, sha512_exists_in_index
     seen_shas = set()
     unique_files = []
-    
     for root, _, files in os.walk(folder_path):
         for file in files:
             if not file.lower().endswith(".pdf"):
                 continue
-            filepath = os.path.join(root, file)
-            sha = calculate_sha512(filepath)
-            if sha in seen_shas:
-                log_func(f"🚫 تخطي مكرر داخلي: {filepath}")
-                continue
-            if sha512_exists_in_index(index_dir, sha):
-                log_func(f"⚠️ تخطي مكرر في الفهرس: {filepath}")
+            fp = os.path.join(root, file)
+            sha = calculate_sha512(fp)
+            if sha in seen_shas or sha512_exists_in_index(index_dir, sha):
+                log_func(f"⚠️ تخطي مكرر: {fp}")
                 continue
             seen_shas.add(sha)
-            unique_files.append(filepath)
+            unique_files.append(fp)
     return unique_files
 
 # ---- Worker ----
@@ -91,27 +111,28 @@ class Worker(QObject):
     def run(self):
         from main_pdf_processor import process_pdf
         try:
-            pdf_files = filter_unique_pdfs(self.folder_path, self.index_dir, log_func=self.status.emit)
-            total = len(pdf_files)
+            files = filter_unique_pdfs(self.folder_path, self.index_dir, log_func=self.status.emit)
+            total = len(files)
             if total == 0:
                 self.status.emit("لا توجد ملفات جديدة للمعالجة.")
                 self.finished.emit(True)
                 return
-
-            processed = 0
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures = {executor.submit(process_pdf, fp, self.index_dir): fp for fp in pdf_files}
-                for future in concurrent.futures.as_completed(futures):
+            done = 0
+            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as ex:
+                futures = {ex.submit(process_pdf, f, self.index_dir): f for f in files}
+                for fut in concurrent.futures.as_completed(futures):
                     if self.stop_requested:
                         self.finished.emit(False)
                         return
-                    future.result()
-                    processed += 1
-                    self.progress.emit(int(processed/total*100))
-
-
+                    fut.result()
+                    done += 1
+                    pct = int(done / total * 100)
+                    self.progress.emit(pct)
+                    self.status.emit(f"{pct}% مكتمل...")
+            self.finished.emit(True)
         except Exception as e:
             self.status.emit(f"❌ خطأ أثناء المعالجة: {e}")
+            logging.error(f"Worker run error: {e}")
             self.finished.emit(False)
 
 # ---- Settings Dialog ----
@@ -123,28 +144,26 @@ class SettingsDialog(QDialog):
         layout = QFormLayout()
         self.inputs = {}
         for key in ('data_dir', 'index_dir', 'nlp_dir', 'pdf_json_dir'):
-            line = QLineEdit(self.cfg.get(key, ''))
-            btn = QPushButton("..." )
-            def _select(path_key=key, widget=line):
-                folder = QFileDialog.getExistingDirectory(self, f"اختر {path_key}")
-                if folder:
-                    widget.setText(folder)
-            btn.clicked.connect(_select)
+            line = QLineEdit(self.cfg[key])
+            btn = QPushButton("...")
+            btn.clicked.connect(lambda _, k=key, w=line: self.select_dir(k, w))
             hl = QHBoxLayout(); hl.addWidget(line); hl.addWidget(btn)
-            layout.addRow(QLabel(key.replace('_',' ').title()), hl)
+            layout.addRow(QLabel(key), hl)
             self.inputs[key] = line
-        save_btn = QPushButton("حفظ")
-        save_btn.clicked.connect(self.save)
-        layout.addRow(save_btn)
+        btn_save = QPushButton("حفظ"); btn_save.clicked.connect(self.save)
+        layout.addRow(btn_save)
         self.setLayout(layout)
+
+    def select_dir(self, key, widget):
+        d = QFileDialog.getExistingDirectory(self, f"اختر {key}")
+        if d: widget.setText(d)
 
     def save(self):
         for key, widget in self.inputs.items():
-            val = widget.text().strip()
-            if not os.path.isdir(val):
-                QMessageBox.warning(self, "خطأ", f"المسار غير صالح: {val}")
+            if not Path(widget.text()).is_dir():
+                QMessageBox.warning(self, "خطأ", f"المسار غير صالح: {widget.text()}")
                 return
-            self.cfg[key] = val
+            self.cfg[key] = widget.text()
         save_config(self.cfg)
         QMessageBox.information(self, "تم الحفظ", "تم تحديث الإعدادات بنجاح.")
         self.accept()
@@ -154,74 +173,84 @@ class PDFProcessingDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("معالجة ملفات PDF")
-        self.setMinimumSize(450, 250)
-        main_layout = QVBoxLayout()
-        # Tabs
-        tabs = QTabWidget()
+        self.setMinimumSize(600, 400)
+        self.layout = QVBoxLayout(self)
+        self.tabs = QTabWidget(); self.layout.addWidget(self.tabs)
         # Processing Tab
-        proc_tab = QWidget(); proc_layout = QVBoxLayout()
-        self.label = QLabel("اختر مجلد PDF:")
-        proc_layout.addWidget(self.label)
-        self.select_btn = QPushButton("📁 اختر المجلد")
-        self.select_btn.clicked.connect(self.select_folder)
-        proc_layout.addWidget(self.select_btn)
-        workers_layout = QHBoxLayout()
-        workers_layout.addWidget(QLabel("عدد العمال:"))
-        self.workers_spinbox = QSpinBox(); self.workers_spinbox.setRange(1,32); self.workers_spinbox.setValue(5)
-        workers_layout.addWidget(self.workers_spinbox); proc_layout.addLayout(workers_layout)
-        btns = QHBoxLayout()
-        self.process_btn = QPushButton("🚀 ابدأ")
-        self.process_btn.setEnabled(False); self.process_btn.clicked.connect(self.start_processing)
-        self.stop_btn = QPushButton("🛑 إيقاف")
-        self.stop_btn.setEnabled(False); self.stop_btn.clicked.connect(self.stop_processing)
-        btns.addWidget(self.process_btn); btns.addWidget(self.stop_btn); proc_layout.addLayout(btns)
-        self.progress_bar = QProgressBar(); proc_layout.addWidget(self.progress_bar)
-        proc_tab.setLayout(proc_layout)
-        # Settings Tab
-        settings_tab = QWidget(); settings_layout = QVBoxLayout()
-        settings_btn = QPushButton("فتح إعدادات")
-        settings_btn.clicked.connect(self.open_settings)
-        settings_layout.addWidget(settings_btn); settings_tab.setLayout(settings_layout)
-        # Add Tabs
-        tabs.addTab(proc_tab, "معالجة")
-        tabs.addTab(settings_tab, "إعدادات")
-        main_layout.addWidget(tabs)
-        self.setLayout(main_layout)
-        # State
-        self.folder_path = ''
-        self.worker = None; self.worker_thread = None
+        proc = QWidget(); lp = QVBoxLayout(proc)
+        self.lbl = QLabel("اختر مجلد PDF:"); lp.addWidget(self.lbl)
+        btn_folder = QPushButton("📁 اختر المجلد"); btn_folder.clicked.connect(self.select_folder); lp.addWidget(btn_folder)
+        h = QHBoxLayout(); h.addWidget(QLabel("عدد العمال:")); self.spin = QSpinBox(); self.spin.setRange(1,32); self.spin.setValue(5); h.addLayout(h); lp.addLayout(h)
+        btns = QHBoxLayout(); self.btn_start=QPushButton("🚀 ابدأ"); self.btn_start.setEnabled(False); self.btn_start.clicked.connect(self.start); btns.addWidget(self.btn_start)
+        self.btn_stop=QPushButton("🛑 إيقاف"); self.btn_stop.setEnabled(False); self.btn_stop.clicked.connect(self.stop); btns.addWidget(self.btn_stop); lp.addLayout(btns)
+        self.bar = QProgressBar(); lp.addWidget(self.bar)
+        self.console = QPlainTextEdit(); self.console.setReadOnly(True); self.console.setFixedHeight(150); lp.addWidget(self.console)
+        proc.setLayout(lp); self.tabs.addTab(proc, "معالجة")
+        sett = QWidget(); ls = QVBoxLayout(sett); b = QPushButton("فتح إعدادات"); b.clicked.connect(self.open_settings); ls.addWidget(b); sett.setLayout(ls); self.tabs.addTab(sett, "إعدادات")
+        self.folder = None; self.worker=None; self.thread=None
 
     def select_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "اختر مجلد PDF")
-        if folder:
-            self.folder_path = folder; self.label.setText(f"📂 {folder}")
-            self.process_btn.setEnabled(True)
+        d = QFileDialog.getExistingDirectory(self, "اختر مجلد PDF")
+        if d:
+            self.folder=d; self.lbl.setText(f"📂 {d}"); self.btn_start.setEnabled(True)
 
-    def start_processing(self):
-        self.process_btn.setEnabled(False); self.stop_btn.setEnabled(True)
-        self.progress_bar.setValue(0); self.label.setText("🔄 جاري المعالجة...")
-        self.worker = Worker(self.folder_path, CONFIG['index_dir'], self.workers_spinbox.value(), CONFIG['pdf_json_dir'])
-        self.worker_thread = QThread(); self.worker.moveToThread(self.worker_thread)
-        self.worker.progress.connect(self.progress_bar.setValue)
-        self.worker.status.connect(self.label.setText)
-        self.worker.finished.connect(self.on_finished);
-        self.worker.finished.connect(self.worker_thread.quit)
-        self.worker_thread.started.connect(self.worker.run)
-        self.worker_thread.start()
+    def start(self):
+        self.console.clear()
+        self.btn_start.setEnabled(False); self.btn_stop.setEnabled(True)
+        self.bar.setValue(0); self.lbl.setText("🔄 جاري المعالجة...")
+        self.worker = Worker(self.folder, CONFIG['index_dir'], self.spin.value(), CONFIG['pdf_json_dir'])
+        self.thread = QThread();
+        self.worker.moveToThread(self.thread)
+        # Clean up thread after done
+        self.worker.finished.connect(self.thread.quit)
+        self.thread.finished.connect(self.thread.deleteLater)
 
-    def stop_processing(self):
-        if self.worker: self.worker.stop()
-        self.label.setText("⏹ طلب إيقاف..."); self.stop_btn.setEnabled(False)
+        # Connect signals
+        self.worker.progress.connect(self.bar.setValue)
+        self.worker.status.connect(self.append_console)
+        self.worker.status.connect(self.lbl.setText)
+        self.worker.finished.connect(self.on_finished)
 
-    def on_finished(self, completed):
-        msg = "✅ انتهى بنجاح" if completed else "⛔ تم الإيقاف"
-        self.label.setText(msg); self.process_btn.setEnabled(True); self.stop_btn.setEnabled(False)
+        self.thread.started.connect(self.worker.run)
+        self.thread.start()
+
+    def stop(self):
+        if self.worker:
+            self.worker.stop(); self.lbl.setText("⏹ طلب إيقاف...")
+            self.btn_stop.setEnabled(False)
+            # Ensure thread quits
+            if self.thread:
+                self.thread.quit()
+                self.thread.wait()
+
+    def on_finished(self, ok):
+        msg = "✅ انتهى بنجاح" if ok else "⛔ تم الإيقاف"
+        self.lbl.setText(msg)
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        # Ensure thread is cleaned up
+        if self.thread:
+            self.thread.wait()
+            self.thread = None
+            self.worker = None
+
+    def append_console(self, msg):
+        self.console.appendPlainText(msg)
 
     def open_settings(self):
-        global CONFIG
         dlg = SettingsDialog(CONFIG, self)
-        if dlg.exec_():
-            CONFIG = load_config()
+        if dlg.exec_(): self.reload_config()
+
+    def reload_config(self):
+        global CONFIG
+        CONFIG = load_config()
+
+    def closeEvent(self, event):
+        if self.thread and self.thread.isRunning():
+            self.worker.stop()
+            self.thread.quit()
+            self.thread.wait()
+        event.accept()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
