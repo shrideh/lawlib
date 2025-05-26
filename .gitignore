@@ -29,7 +29,6 @@ sdist/
 win_exe/
 var/
 wheels/
-nlp/
 models/
 share/python-wheels/
 *.egg-info/
