@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
-# gh release create v1.0.6 output/LawLibInstaller.exe --title "الإصدار 1.0.6" --notes "تنسيق البرنامج بشكل افضل"
+# gh release create v1.0.6 output/LawLibInstaller.exe --title "الإصدار 1.0.6" --notes "تنسيق النتائج بشكل افضل"
 import base64
 import json
 import logging
