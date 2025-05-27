@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
-# gh release create v1.0.4 output/LawLibInstaller.exe --title "الإصدار 1.0.4" --notes "تنظيم ملف الوج"
+# gh release create v1.0.4 output/LawLibInstaller.exe --title "الإصدار 1.0.5" --notes "تنسيق البرنامج بشكل افضل"
 import base64
 import json
 import logging
@@ -448,6 +448,7 @@ class IndexDialog(QDialog):
         else:
             QMessageBox.critical(self, "خطأ في الفهرسة", message)
 
+
 class SearchApp(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -468,6 +469,79 @@ class SearchApp(QMainWindow):
         self.last_search_results_html = ""  # Initialize variable to store HTML results
         self.init_ui()
         self.center_on_screen()
+
+        self.setStyleSheet(
+            """
+    QMainWindow {
+        background-color: #f9f9f9;
+    }
+    QLabel {
+        color: #2c3e50;
+        font-size: 13pt;
+    }
+    QLineEdit {
+        background-color: #ffffff;
+        border: 1px solid #cccccc;
+        padding: 5px;
+        font-size: 11pt;
+    }
+    QPushButton {
+        background-color: #00796b;
+        color: white;
+        border-radius: 5px;
+        padding: 8px 12px;
+        font-size: 11pt;
+    }
+    QPushButton:hover {
+        background-color: #004d40;
+    }
+    QTextBrowser {
+        background-color: #ffffff;
+        border: 1px solid #cccccc;
+        padding: 10px;
+        font-size: 12pt;
+        color: #333333;
+    }
+    QMenuBar {
+    background-color: #ffffff;
+    color: #2c3e50;
+    font-size: 11pt;
+}
+
+QMenuBar {
+    background-color: #ffffff;
+    color: #2c3e50;
+    font-size: 11pt;
+}
+
+QMenuBar::item {
+    background-color: transparent;
+    padding: 5px 15px;
+}
+
+QMenuBar::item:selected {
+    background-color: #00796b;
+    color: #ffffff;
+}
+
+QMenu {
+    background-color: #ffffff;
+    border: 1px solid #dddddd;
+    font-size: 11pt;
+    color: #2c3e50;
+}
+
+QMenu::item {
+    padding: 6px 20px;
+    padding-right: 40px;  /* تباعد مناسب للاختصارات */
+}
+
+QMenu::item:selected {
+    background-color: #00796b;
+    color: #ffffff;
+}
+"""
+        )
 
     def init_ui(self):
         main_widget = QWidget()
@@ -490,8 +564,10 @@ class SearchApp(QMainWindow):
             self.search_query
         )  # Search on Enter key
         self.use_or_checkbox = QCheckBox("او")
-        self.use_or_checkbox.setToolTip("إذا تم تفعيله، سيتم البحث باستخدام OR بين الكلمات المدخلة.")
-        
+        self.use_or_checkbox.setToolTip(
+            "إذا تم تفعيله، سيتم البحث باستخدام OR بين الكلمات المدخلة."
+        )
+
         search_btn = QPushButton("🔍 بحث")
         search_btn.clicked.connect(self.search_query)
         search_input_layout.addWidget(self.search_input)
@@ -547,7 +623,6 @@ class SearchApp(QMainWindow):
         file_menu.addAction(exit_action)
 
         self.statusBar().showMessage("جاهز.")
-    
 
     def center_on_screen(self):
         screen_geometry = QApplication.primaryScreen().availableGeometry()
@@ -575,11 +650,86 @@ class SearchApp(QMainWindow):
 
     def open_how_to_use(self):
         try:
-            path = os.path.abspath("how_to_use_it.html")
-            webbrowser.open(f"file://{path}")
+            # Create a new dialog window
+            dialog = QDialog(self)
+            dialog.setWindowTitle("تحديث كتب البرنامج")
+            dialog.setLayoutDirection(Qt.RightToLeft)  # For RTL layout
+            dialog.resize(800, 600)
+
+            # Create a QTextBrowser to display the HTML content
+            text_browser = QTextBrowser(dialog)
+            text_browser.setHtml(
+                """
+                <!DOCTYPE html>
+                <html lang="ar" dir="rtl">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>تحديث كتب البرنامج</title>
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            font-size: 24px;
+                            line-height: 1.8;
+                            background-color: #f9f9f9;
+                            color: #333;
+                            padding: 20px;
+                        }
+                        h1, h2 {
+                            color: #2c3e50;
+                        }
+                        .step {
+                            background-color: #ffffff;
+                            border-right: 4px solid #3498db;
+                            padding: 15px;
+                            margin: 10px 0;
+                            border-radius: 8px;
+                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        }
+                        code {
+                            background-color: #eee;
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-family: Consolas, monospace;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h1>تحديث كتب البرنامج</h1>
+                    <div class="step">
+                        <h2>خطوات تحديث كتب البرنامج</h2>
+                        <ul>
+                            <li>اذهب إلى قائمة <strong>مساعدة</strong>، ثم اختر <strong>تحديث كتب البرنامج</strong>.</li>
+                            <li>ستظهر لك قائمة بالإصدارات المتوفرة من الكتب، مع رقم كل إصدار.</li>
+                            <li>لتثبيت إصدار معين، انقر على زر <strong>تحميل</strong> الموجود بجانبه.</li>
+                            <li>سيتم فتح رابط التحميل تلقائيًا، قم بتحميل الملف إلى جهازك.</li>
+                            <li>بعد انتهاء التحميل، افتح البرنامج واذهب إلى قائمة <strong>ملف</strong> ثم اختر <strong>فهرسة جديدة</strong>.</li>
+                            <li>انقر على <strong>فتح المجلد</strong> بجانب <strong>المجلد المصدر</strong>.</li>
+                            <li>استخدم برنامج <strong>7-Zip</strong> لفك الضغط عن الملف المحمل داخل مجلد <code>PDF_JSON</code> الموجود داخل المجلد المصدر الذي تم فتحه، <strong>دون الموافقة على الاستبدال</strong>.</li>
+                            <li>هيكلية المجلد <code>PDF_JSON</code> يجب أن تكون كالتالي:
+                                <ul>
+                                    <li>مجلدات مرقمة مثل: <code>1</code>، <code>2</code>، <code>3</code> ...</li>
+                                    <li>داخل كل مجلد مرقم توجد كتب مرقمة من <code>1</code> إلى <code>200</code>.</li>
+                                </ul>
+                            </li>
+                            <li>بعد فك الضغط داخل المجلد المصدر، انقر على <strong>بدء الفهرسة</strong> لتحديث بيانات البحث.</li>
+                            <li>أخيرًا، عد إلى قائمة <strong>تحديث كتب البرنامج</strong> وانقر على زر <strong>تم التثبيت</strong> لحفظ حالة التثبيت.</li>
+                        </ul>
+                    </div>
+                </body>
+                </html>
+            """
+            )
+            text_browser.setReadOnly(True)
+
+            # Add a layout to the dialog
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(text_browser)
+
+            # Show the dialog
+            dialog.exec_()
         except Exception as e:
-            logging.error("تعذر فتح ملف التعليمات: %s", str(e))
-            QMessageBox.critical(self, "خطأ", "تعذر فتح ملف التعليمات.")
+            logging.error("تعذر فتح نافذة التعليمات: %s", str(e))
+            QMessageBox.critical(self, "خطأ", "تعذر فتح نافذة التعليمات.")
 
     def check_for_update(self):
         dialog = UpdateCheckerDialog()
@@ -903,8 +1053,18 @@ class UpdateCheckerDialog(QDialog):
         try:
             dt = datetime.fromisoformat(iso_str)
             months = [
-                "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-                "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
+                "يناير",
+                "فبراير",
+                "مارس",
+                "أبريل",
+                "مايو",
+                "يونيو",
+                "يوليو",
+                "أغسطس",
+                "سبتمبر",
+                "أكتوبر",
+                "نوفمبر",
+                "ديسمبر",
             ]
             return f"{dt.day} {months[dt.month-1]} {dt.year} - {dt.hour:02d}:{dt.minute:02d}"
         except:
@@ -943,7 +1103,9 @@ class UpdateCheckerDialog(QDialog):
 
     def _fill_row(self, row, rec, status, action_enabled):
         self.version_table.setItem(row, 0, QTableWidgetItem(str(rec["version"])))
-        self.version_table.setItem(row, 1, QTableWidgetItem(self.format_date(rec["updated_at"])))
+        self.version_table.setItem(
+            row, 1, QTableWidgetItem(self.format_date(rec["updated_at"]))
+        )
         url_text = rec.get("updated_url", "") or "—"
         url_item = QTableWidgetItem(url_text)
         if url_text != "—":
@@ -990,14 +1152,18 @@ class UpdateCheckerDialog(QDialog):
             for update in data:
                 version = str(update.get("version", ""))
                 if version not in installed_versions:
-                    self.cache_updates.append({
-                        "version": version,
-                        "updated_at": update.get("updated_at", ""),
-                        "updated_url": update.get("updated_url", ""),
-                    })
+                    self.cache_updates.append(
+                        {
+                            "version": version,
+                            "updated_at": update.get("updated_at", ""),
+                            "updated_url": update.get("updated_url", ""),
+                        }
+                    )
 
             if self.cache_updates:
-                self.status_label.setText(f"📚 تم العثور على {len(self.cache_updates)} تحديث(ات) جديدة.")
+                self.status_label.setText(
+                    f"📚 تم العثور على {len(self.cache_updates)} تحديث(ات) جديدة."
+                )
             else:
                 self.status_label.setText("✅ لا توجد تحديثات جديدة.")
 
@@ -1013,7 +1179,9 @@ class UpdateCheckerDialog(QDialog):
             return
 
         QDesktopServices.openUrl(QUrl(url))
-        self.status_label.setText(f"📥 جاري تحميل الإصدار {rec['version']} ... بعد الانتهاء اضغط على 'تم التثبيت'.")
+        self.status_label.setText(
+            f"📥 جاري تحميل الإصدار {rec['version']} ... بعد الانتهاء اضغط على 'تم التثبيت'."
+        )
         self.replace_download_button_with_installed_button(rec["version"])
 
     def replace_download_button_with_installed_button(self, version):
@@ -1031,17 +1199,20 @@ class UpdateCheckerDialog(QDialog):
             return
 
         # إيجاد الإصدار من الكاش لإضافته
-        match = next((rec for rec in self.cache_updates if rec["version"] == version), None)
+        match = next(
+            (rec for rec in self.cache_updates if rec["version"] == version), None
+        )
         if not match:
             QMessageBox.warning(self, "خطأ", "لم يتم العثور على تفاصيل هذا الإصدار.")
             return
 
         self.history.insert(0, match)
         self.save_history()
-        self.cache_updates = [rec for rec in self.cache_updates if rec["version"] != version]
+        self.cache_updates = [
+            rec for rec in self.cache_updates if rec["version"] != version
+        ]
         self.status_label.setText(f"✅ تم تثبيت الإصدار {version}.")
         self.refresh_table()
-
 
 
 class HelpDialog(QDialog):
@@ -1057,6 +1228,28 @@ class HelpDialog(QDialog):
         browser.setLayoutDirection(Qt.RightToLeft)  # دعم RTL للنص داخل المتصفح
         browser.setHtml(
             """
+            <style>
+        body {
+            font-family: 'Cairo', 'Amiri', 'Segoe UI', Tahoma, sans-serif;
+            background-color: #f9f9f9;
+            color: #2c3e50;
+            font-size: 17px;
+            line-height: 2.2;
+            direction: rtl;
+            text-align: right;
+            padding: 30px;
+        }
+        ul {
+            font-size: 24px;
+            padding-right: 35px;
+            margin: 0;
+            list-style-type: disc;
+        }
+        li {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+        </style>
             <div style="font-family:'Segoe UI', Tahoma, sans-serif; color: #2c3e50;">
                 <h2>🔎 إرشادات البحث المنطقي والمتقدم</h2>
                 <ul style="font-size: 14px; line-height: 1.8; padding-right: 20px;">
@@ -1111,9 +1304,8 @@ class HelpDialog(QDialog):
         close_btn = QPushButton("إغلاق")
         close_btn.setFixedWidth(100)
         close_btn.clicked.connect(self.close)
-        layout.addWidget(
-            close_btn, alignment=Qt.AlignLeft
-        ) 
+        layout.addWidget(close_btn, alignment=Qt.AlignLeft)
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
