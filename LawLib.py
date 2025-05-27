@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
-# gh release create v1.0.5 output/LawLibInstaller.exe --title "الإصدار 1.0.5" --notes "تنسيق البرنامج بشكل افضل"
+# gh release create v1.0.6 output/LawLibInstaller.exe --title "الإصدار 1.0.6" --notes "تنسيق البرنامج بشكل افضل"
 import base64
 import json
 import logging
@@ -806,7 +806,21 @@ QMenu::item:selected {
                     self.last_search_results_html = ""
                     return
 
-                html_parts = []
+                html_parts = [
+                    """
+                    <style>
+                        body {
+                            background-color: #000;
+                            color: #2c3e50;
+                            font-size: 17px;
+                            line-height: 2.2;
+                            direction: rtl;
+                            text-align: right;
+                            padding: 30px;
+                        }
+                    </style>
+                    """
+                ]
                 num_results = len(results)
                 self.statusBar().showMessage(
                     f"تم العثور على {num_results} نتيجة لـ '{query_text}'."
@@ -841,37 +855,43 @@ QMenu::item:selected {
                     # بطاقة نتيجة واحدة
                     card_html = (
                         "<div style='"
-                        "border: 1px solid #eee;"
-                        "border-radius: 6px;"
-                        "padding: 10px;"
+                        "border: 1px solid #ddd;"
+                        "border-radius: 10px;"
+                        "padding: 14px;"
+                        "box-shadow: 0 2px 6px rgba(0,0,0,0.05);"
                         "display: flex;"
                         "flex-direction: column;"
                         "height: 100%;"
+                        "font-family: Cairo, Amiri, sans-serif;"
                         "'>"
                     )
 
-                    # المحتوى النصي
+                   
+                    # عنوان وتفاصيل البطاقة
                     card_html += (
-                        f"<h4 style='margin:0 0 6px 0; font-size: 1em;'>{i+1}. {file_title} (صفحة {page_num})</h4>"
-                        f"<p style='flex-grow: 1; font-size: 0.9em; color: #333; margin:0 0 8px 0;'>{excerpt}...</p>"
-                        f"<p style='font-size: 0.8em; color: #555; margin:0 0 10px 0;'>"
+                        f"<h4 style='margin:0 0 8px 0; font-size: 1em; color:#0d47a1;'>{i+1}. {file_title}</h4>"
+                        f"<p style='flex-grow: 1; font-size: 0.9em; color: #2c3e50; margin:0 0 10px 0;'>{excerpt}...</p>"
+                        "<p style='font-size: 0.8em; color: #666; margin:0 0 10px 0;'>"
                         f"المسار: {os.path.basename(pdf_path)}"
                         "</p>"
                         f'<a href="{external_link_href}" '
-                        f"style='align-self: flex-start; font-size: 0.9em; color: #28a745; text-decoration: none;' "
-                        f'target="_blank">افتح الملف</a>'
+                        "style='align-self: flex-start; font-size: 0.9em; color: #1e7e34; text-decoration: none; font-weight: bold;' "
+                        f'target="_blank">📂 افتح الملف (صفحة {page_num})</a>'
                     )
-
-                    # الصورة أعلى البطاقة (إن وجدت)
+                   
+                    # الصورة (اسفل البطاقة)
                     if image_base64:
                         card_html += (
-                            f"<div style='flex-shrink: 0; text-align: center; margin-bottom: 8px;'>"
+                            "<div style='flex-shrink: 0; text-align: center; margin-bottom: 10px;'>"
                             f"<img src='{image_base64}' "
-                            f"style='max-width: 60%; max-height: 80px; border-radius: 4px;' height='800'/>"
+                            "style='max-width: 70%; max-height: 80px; border-radius: 6px;' height='800'/>"
                             "</div>"
                         )
-
-                    card_html += "</div>"  # نهاية البطاقة
+                    # نهاية البطاقة
+                    card_html += (
+                        "</div>"
+                        "<hr>"  
+                    )
 
                     html_parts.append(card_html)
 
