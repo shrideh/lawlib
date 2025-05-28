@@ -1,4 +1,4 @@
-# pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico
+# pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico --splash=splash.jpg
 # gh release create v1.0.6 output/LawLibInstaller.exe --title "الإصدار 1.0.6" --notes "تنسيق النتائج بشكل افضل"
 import base64
 import json
@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime
-import webbrowser
 import certifi
 import requests
 from PyQt5.QtCore import QThread, QUrl, Qt, pyqtSignal, QSettings
@@ -1329,6 +1328,13 @@ class HelpDialog(QDialog):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+    
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except:
+        pass
+
     window = SearchApp()
     window.show()
     initialize_index()
