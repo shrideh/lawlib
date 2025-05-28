@@ -11,6 +11,8 @@ SetupIconFile=ico.ico
 
 [Files]
 Source: "dist\LawLib.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\pdf_processor_gui.exe"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "nlp\*"; DestDir: "{app}\nlp"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 ; اختصار في قائمة ابدأ

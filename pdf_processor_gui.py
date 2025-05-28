@@ -1,4 +1,22 @@
-# pyinstaller --noconfirm --onefile --windowed --icon=ico.ico pdf_processor_gui.py
+# pyinstaller --noconfirm --onefile --windowed --icon=ico.ico --splash=book_splash.jpg pdf_processor_gui.py
+import platform
+if platform.system() == "Windows":
+    import subprocess
+    # إعداد STARTUPINFO لإخفاء النافذة
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    CREATE_NO_WINDOW = 0x08000000
+
+    _orig_popen = subprocess.Popen
+    def _popen_hidden(*args, **kwargs):
+        kwargs.setdefault("startupinfo", si)
+        kwargs.setdefault("creationflags", CREATE_NO_WINDOW)
+        return _orig_popen(*args, **kwargs)
+
+    subprocess.Popen = _popen_hidden
+
+import base64
 import sys
 import os
 from pathlib import Path
@@ -9,8 +27,12 @@ from PyQt5.QtWidgets import (
     QFileDialog, QProgressBar, QHBoxLayout, QSpinBox, QWidget,
     QFormLayout, QLineEdit, QMessageBox, QTabWidget, QPlainTextEdit
 )
+from PyQt5.QtGui import QPixmap, QIcon
 from PyQt5.QtCore import pyqtSignal, QThread, QObject, Qt
 import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+from icon import icon_base64
+icon_base64 = icon_base64
 
 # ---- Determine Base Directory ----
 # If frozen by PyInstaller, use the executable's folder, else use script's folder
@@ -108,6 +130,29 @@ class Worker(QObject):
     def stop(self):
         self.stop_requested = True
 
+        # ﹡ألغِ المهمات المعلقة في Executor إن كان موجوداً﹡
+        if hasattr(self, 'executor'):
+            try:
+                # cancel_futures متاح في Python 3.9+
+                self.executor.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                # إصدارات أقدم: نقلّل الانتظار فقط
+                self.executor.shutdown(wait=False)
+
+        # ﹡قتل كل subprocess بدأت سابقاً﹡
+        try:
+            from main_pdf_processor import SUBPROCS
+            for proc in SUBPROCS:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+            SUBPROCS.clear()
+        except ImportError:
+            pass
+
+        self.status.emit("⏹ طلب إيقاف...")
+
     def run(self):
         from main_pdf_processor import process_pdf
         try:
@@ -117,19 +162,24 @@ class Worker(QObject):
                 self.status.emit("لا توجد ملفات جديدة للمعالجة.")
                 self.finished.emit(True)
                 return
+
+            self.executor = ThreadPoolExecutor(max_workers=self.max_workers)
+            futures = {self.executor.submit(process_pdf, f, self.index_dir): f for f in files}
+
             done = 0
-            with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as ex:
-                futures = {ex.submit(process_pdf, f, self.index_dir): f for f in files}
-                for fut in concurrent.futures.as_completed(futures):
-                    if self.stop_requested:
-                        self.finished.emit(False)
-                        return
-                    fut.result()
-                    done += 1
-                    pct = int(done / total * 100)
-                    self.progress.emit(pct)
-                    self.status.emit(f"{pct}% مكتمل...")
-            self.finished.emit(True)
+            for fut in concurrent.futures.as_completed(futures):
+                if self.stop_requested:
+                    break
+                fut.result()
+                done += 1
+                pct = int(done / total * 100)
+                self.progress.emit(pct)
+                self.status.emit(f"{pct}% مكتمل...")
+
+            # تأكد من إغلاق الإكسكيوتر
+            self.executor.shutdown(wait=True)
+            self.finished.emit(not self.stop_requested)
+
         except Exception as e:
             self.status.emit(f"❌ خطأ أثناء المعالجة: {e}")
             logging.error(f"Worker run error: {e}")
@@ -176,11 +226,21 @@ class PDFProcessingDialog(QDialog):
         self.setMinimumSize(600, 400)
         self.layout = QVBoxLayout(self)
         self.tabs = QTabWidget(); self.layout.addWidget(self.tabs)
+        icon_data = base64.b64decode(icon_base64)
+        pixmap = QPixmap()
+        pixmap.loadFromData(icon_data)
+        self.setWindowIcon(QIcon(pixmap))
         # Processing Tab
         proc = QWidget(); lp = QVBoxLayout(proc)
         self.lbl = QLabel("اختر مجلد PDF:"); lp.addWidget(self.lbl)
         btn_folder = QPushButton("📁 اختر المجلد"); btn_folder.clicked.connect(self.select_folder); lp.addWidget(btn_folder)
-        h = QHBoxLayout(); h.addWidget(QLabel("عدد العمال:")); self.spin = QSpinBox(); self.spin.setRange(1,32); self.spin.setValue(5); h.addLayout(h); lp.addLayout(h)
+        h = QHBoxLayout()
+        h.addWidget(QLabel("عدد العمال:"))
+        self.spin = QSpinBox()
+        self.spin.setRange(1, 32)
+        self.spin.setValue(5)
+        h.addWidget(self.spin)
+        lp.addLayout(h)
         btns = QHBoxLayout(); self.btn_start=QPushButton("🚀 ابدأ"); self.btn_start.setEnabled(False); self.btn_start.clicked.connect(self.start); btns.addWidget(self.btn_start)
         self.btn_stop=QPushButton("🛑 إيقاف"); self.btn_stop.setEnabled(False); self.btn_stop.clicked.connect(self.stop); btns.addWidget(self.btn_stop); lp.addLayout(btns)
         self.bar = QProgressBar(); lp.addWidget(self.bar)
@@ -254,6 +314,11 @@ class PDFProcessingDialog(QDialog):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    try:
+        import pyi_splash
+        pyi_splash.close()
+    except:
+        pass
     app.setLayoutDirection(Qt.RightToLeft)
     window = PDFProcessingDialog()
     window.show()

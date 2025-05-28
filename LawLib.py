@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico --splash=splash.jpg
-# gh release create v1.0.7 output/LawLibInstaller.exe --title "الإصدار 1.0.7" --notes "انشاء شاشة تحميل"
+# gh release create v1.0.8 output/LawLibInstaller.exe --title "الإصدار 1.0.8" --notes "التحديث من جيت هب اضافة محول الكتب من قائمة ملف"" 
 import base64
 import json
 import logging
@@ -36,6 +36,9 @@ from whoosh.fields import ID, NUMERIC, Schema, TEXT
 from whoosh.index import create_in, open_dir
 from whoosh.qparser import QueryParser
 from icon import icon_base64
+
+CURRENT_VERSION = "v1.0.8"
+
 
 icon_base64 = icon_base64
 
@@ -585,7 +588,12 @@ QMenu::item:selected {
         main_layout.addWidget(search_group_widget)
 
         menubar = self.menuBar()
-        file_menu = menubar.addMenu("ملف")  # Renamed for convention
+        file_menu = menubar.addMenu("ملف") 
+        converter_action = QAction("محول الكتب", self)
+        converter_action.setToolTip("افتح الأداة الخارجية لتحويل ملفات PDF")
+        converter_action.triggered.connect(self.open_pdf_converter)
+        file_menu.addAction(converter_action)
+        file_menu.addSeparator()
         help_menu = menubar.addMenu("مساعدة")
         help_action = QAction("إرشادات البحث", self)
         update_action = QAction("تحديث كتب البرنامج", self)
@@ -623,6 +631,18 @@ QMenu::item:selected {
 
         self.statusBar().showMessage("جاهز.")
 
+
+    def open_pdf_converter(self):
+        # APP_DIR هنا لا يزال str، فنستخدم os.path.join
+        exe_path = os.path.join(APP_DIR, "pdf_processor_gui.exe")
+        if os.path.exists(exe_path):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(exe_path))
+        else:
+            QMessageBox.warning(
+                self,
+                "خطأ",
+                f"لم يتم العثور على الأداة:\n{exe_path}"
+            )
     def center_on_screen(self):
         screen_geometry = QApplication.primaryScreen().availableGeometry()
         x = (screen_geometry.width() - self.width()) // 2
@@ -663,7 +683,7 @@ QMenu::item:selected {
                 <html lang="ar" dir="rtl">
                 <head>
                     <meta charset="UTF-8">
-                    <title>تحديث كتب البرنامج</title>
+                    <title>محول الكتب</title>
                     <style>
                         body {
                             font-family: Arial, sans-serif;
@@ -693,30 +713,30 @@ QMenu::item:selected {
                     </style>
                 </head>
                 <body>
-                    <h1>تحديث كتب البرنامج</h1>
+                    <h1>محول الكتب</h1>
                     <div class="step">
-                        <h2>خطوات تحديث كتب البرنامج</h2>
+                        <h2>خطوات تشغيل محول الكتب</h2>
                         <ul>
-                            <li>اذهب إلى قائمة <strong>مساعدة</strong>، ثم اختر <strong>تحديث كتب البرنامج</strong>.</li>
-                            <li>ستظهر لك قائمة بالإصدارات المتوفرة من الكتب، مع رقم كل إصدار.</li>
-                            <li>لتثبيت إصدار معين، انقر على زر <strong>تحميل</strong> الموجود بجانبه.</li>
-                            <li>سيتم فتح رابط التحميل تلقائيًا، قم بتحميل الملف إلى جهازك.</li>
-                            <li>بعد انتهاء التحميل، افتح البرنامج واذهب إلى قائمة <strong>ملف</strong> ثم اختر <strong>فهرسة جديدة</strong>.</li>
-                            <li>انقر على <strong>فتح المجلد</strong> بجانب <strong>المجلد المصدر</strong>.</li>
-                            <li>استخدم برنامج <strong>7-Zip</strong> لفك الضغط عن الملف المحمل داخل مجلد <code>PDF_JSON</code> الموجود داخل المجلد المصدر الذي تم فتحه، <strong>دون الموافقة على الاستبدال</strong>.</li>
-                            <li>هيكلية المجلد <code>PDF_JSON</code> يجب أن تكون كالتالي:
-                                <ul>
-                                    <li>مجلدات مرقمة مثل: <code>1</code>، <code>2</code>، <code>3</code> ...</li>
-                                    <li>داخل كل مجلد مرقم توجد كتب مرقمة من <code>1</code> إلى <code>200</code>.</li>
-                                </ul>
-                            </li>
-                            <li>بعد فك الضغط داخل المجلد المصدر، انقر على <strong>بدء الفهرسة</strong> لتحديث بيانات البحث.</li>
-                            <li>أخيرًا، عد إلى قائمة <strong>تحديث كتب البرنامج</strong> وانقر على زر <strong>تم التثبيت</strong> لحفظ حالة التثبيت.</li>
+                            <li>في القائمة الرئيسية اختر <strong>ملف &raquo; محول الكتب</strong>.</li>
+                            <li>سيفتح لك تطبيق تحويل ملفات PDF (pdf_processor_gui.exe).</li>
+                            <li>في الواجهة الجديدة اضغط على زر <strong>📁 اختر المجلد</strong> واختر المجلد الذي يحتوي على ملفات PDF.</li>
+                            <li>بعد اختيار المجلد، حدد عدد العمال (الـ Threads) ثم اضغط <strong>🚀 ابدأ</strong>.</li>
+                            <li>سيبدأ التطبيق في فحص الملفات وتنفيذ الخطوات التالية لكل ملف:</li>
+                            <ul>
+                                <li>إزالة الملفات المكررة بالتحقق من قيمة SHA-512.</li>
+                                <li>استخراج نص كل صفحة عبر OCR.</li>
+                                <li>تنظيف النص وإزالة التشكيل والكلمات الشائعة.</li>
+                                <li>حفظ محتوى الكتاب في ملف JSON داخل مجلد <code>PDF_JSON</code>.</li>
+                                <li>توليد صورة مصغرة للملف.</li>
+                            </ul>
+                            <li>يمكنك إيقاف المعالجة في أي وقت بالضغط على <strong>🛑 إيقاف</strong>؛ سيقوم التطبيق بقتل كل العمليات الفرعية وينهي الخيوط فوراً.</li>
+                            <li>بعد الانتهاء، اضغط <strong>خروج</strong> للعودة إلى التطبيق الرئيسي.</li>
+                            <li><strong>بعد الانتهاء من تحويل الكتب</strong>، اذهب إلى قائمة <strong>ملف</strong> ثم اختر <strong>فهرسة جديدة</strong>، وانقر على زر <strong>بدء الفهرسة</strong>، وبعد انتهاء الفهرسة يمكنك البدء بالبحث في الكتب.</li>
                         </ul>
                     </div>
                 </body>
                 </html>
-            """
+                """
             )
             text_browser.setReadOnly(True)
 
@@ -1060,9 +1080,10 @@ class UpdateCheckerDialog(QDialog):
         font.setPointSize(12)
         self.status_label.setFont(font)
 
-        self.update_button = QPushButton("التحقق يدويًا من تحديث كتب البرنامج")
-        self.update_button.clicked.connect(self.check_for_update_on_start)
-
+        self.update_button = QPushButton("زيارة صفحة المشروع على GitHub")
+        self.update_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/shrideh/lawlib/releases")))
+        self.current_version_label = QLabel(f"الإصدار الحالي: {CURRENT_VERSION}", alignment=Qt.AlignRight)
+        layout.addWidget(self.current_version_label)
         layout.addWidget(self.version_table)
         layout.addWidget(self.status_label)
         layout.addWidget(self.update_button)
@@ -1149,47 +1170,57 @@ class UpdateCheckerDialog(QDialog):
                 QDesktopServices.openUrl(QUrl(url))
 
     def check_for_update_on_start(self):
-        self.status_label.setText("جاري التحقق من تحديث كتب البرنامج…")
+        self.status_label.setText("جاري التحقق من تحديثات GitHub…")
         try:
+            headers = {'Accept': 'application/vnd.github.v3+json'}
             r = requests.get(
-                "https://mws.per.jo/library/books-updeat/",
+                "https://api.github.com/repos/shrideh/lawlib/releases",
+                headers=headers,
                 verify=certifi.where(),
                 timeout=5,
             )
             if r.status_code != 200:
-                self.status_label.setText("❌ فشل الاتصال بالخادم.")
+                self.status_label.setText("❌ فشل الاتصال بـ GitHub.")
                 return
 
             data = r.json()
             if not isinstance(data, list):
-                self.status_label.setText("⚠️ البيانات المستلمة غير صحيحة.")
+                self.status_label.setText("⚠️ البيانات المستلمة من GitHub غير صحيحة.")
                 return
 
             installed_versions = {rec["version"] for rec in self.history}
             self.cache_updates = []
 
-            for update in data:
-                version = str(update.get("version", ""))
-                if version not in installed_versions:
-                    self.cache_updates.append(
-                        {
-                            "version": version,
-                            "updated_at": update.get("updated_at", ""),
-                            "updated_url": update.get("updated_url", ""),
-                        }
-                    )
+            for release in data:
+                version = release.get("tag_name", "")
+                if not version:
+                    continue
+
+                if version_greater(version, CURRENT_VERSION):
+                    published_at = release.get("published_at", "")
+                    assets = release.get("assets", [])
+                    download_url = assets[0]["browser_download_url"] if assets else ""
+
+                    if version not in installed_versions:
+                        self.cache_updates.append(
+                            {
+                                "version": version,
+                                "updated_at": published_at,
+                                "updated_url": download_url,
+                            }
+                        )
 
             if self.cache_updates:
                 self.status_label.setText(
-                    f"📚 تم العثور على {len(self.cache_updates)} تحديث(ات) جديدة."
+                    f"📚 تم العثور على {len(self.cache_updates)} إصدار(ات) جديدة على GitHub."
                 )
             else:
-                self.status_label.setText("✅ لا توجد تحديثات جديدة.")
+                self.status_label.setText("✅ لا توجد تحديثات جديدة على GitHub.")
 
             self.refresh_table()
 
         except Exception as e:
-            self.status_label.setText(f"⚠️ فشل الاتصال: {e}")
+            self.status_label.setText(f"⚠️ فشل الاتصال بـ GitHub: {e}")
 
     def download_update(self, rec):
         url = rec.get("updated_url")
@@ -1324,6 +1355,34 @@ class HelpDialog(QDialog):
         close_btn.setFixedWidth(100)
         close_btn.clicked.connect(self.close)
         layout.addWidget(close_btn, alignment=Qt.AlignLeft)
+
+def version_greater(v1, v2):
+    # إزالة 'v' أو 'V' إن وجدت
+    def clean(v):
+        return v.lstrip('vV').split('.')
+    
+    parts1 = clean(v1)
+    parts2 = clean(v2)
+
+    # تحويل الأجزاء إلى أرقام، وتعامل مع الأجزاء الناقصة بإضافة أصفار
+    max_len = max(len(parts1), len(parts2))
+    parts1 += ['0'] * (max_len - len(parts1))
+    parts2 += ['0'] * (max_len - len(parts2))
+
+    for p1, p2 in zip(parts1, parts2):
+        try:
+            n1 = int(p1)
+        except:
+            n1 = 0
+        try:
+            n2 = int(p2)
+        except:
+            n2 = 0
+        if n1 > n2:
+            return True
+        elif n1 < n2:
+            return False
+    return False  # متساوي أو أقل
 
 
 if __name__ == "__main__":

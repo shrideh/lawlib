@@ -1,3 +1,24 @@
+import platform
+if platform.system() == "Windows":
+    import subprocess
+    # قائمة لحفظ كل عمليات Popen
+    SUBPROCS = []
+
+    # BATSH SILENT POPEN
+    si = subprocess.STARTUPINFO()
+    si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    si.wShowWindow = subprocess.SW_HIDE
+    CREATE_NO_WINDOW = 0x08000000
+
+    _orig_popen = subprocess.Popen
+    def _popen_hidden(*args, **kwargs):
+        kwargs.setdefault("startupinfo", si)
+        kwargs.setdefault("creationflags", CREATE_NO_WINDOW)
+        proc = _orig_popen(*args, **kwargs)
+        SUBPROCS.append(proc)
+        return proc
+
+    subprocess.Popen = _popen_hidden
 import os
 import uuid
 import logging
