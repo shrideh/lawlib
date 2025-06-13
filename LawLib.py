@@ -10,7 +10,7 @@ import sys
 from datetime import datetime
 import certifi
 import requests
-from PyQt5.QtCore import QThread, QUrl, Qt, pyqtSignal, QSettings
+from PyQt5.QtCore import QThread, QUrl, Qt, pyqtSignal, QSettings, QRunnable, QThreadPool
 from PyQt5.QtGui import QColor, QDesktopServices, QFont, QIcon, QPixmap, QTextCursor
 from PyQt5.QtWidgets import (
     QAction,
@@ -36,7 +36,7 @@ from whoosh.fields import ID, NUMERIC, Schema, TEXT
 from whoosh.index import create_in, open_dir
 from whoosh.qparser import QueryParser
 from icon import icon_base64
-import threading
+
 
 CURRENT_VERSION = "v1.0.9"
 
@@ -84,19 +84,24 @@ def load_favorites():
     return []
 
 
-favorites_lock = threading.Lock()
-
 def save_favorites(favs):
-    def save_thread():
-        with favorites_lock:
-            try:
-                with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
-                    json.dump(favs, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                logging.error(f"حدث خطأ أثناء حفظ المفضلة: {e}")
+    # إنشاء مهمة الحفظ
+    save_task = SaveFavoritesTask(favs)
     
-    # تشغيل عملية الحفظ في خيط منفصل
-    threading.Thread(target=save_thread, daemon=True).start()
+    # إضافة المهمة إلى مجموعة الخيوط
+    QThreadPool.globalInstance().start(save_task)
+
+class SaveFavoritesTask(QRunnable):
+    def __init__(self, favorites):
+        super().__init__()
+        self.favorites = favorites
+
+    def run(self):
+        try:
+            with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.favorites, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logging.error(f"حدث خطأ أثناء حفظ المفضلة: {e}")
 
 def initialize_index():
     try:
