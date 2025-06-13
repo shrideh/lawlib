@@ -1,6 +1,6 @@
 [Setup]
 AppName=LawLib
-AppVersion=1.0.7
+AppVersion=1.0.9
 DefaultDirName={localappdata}\LawLib
 DefaultGroupName=LawLib
 OutputDir=output

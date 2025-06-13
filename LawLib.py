@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico --splash=splash.jpg
-# gh release create v1.0.8 output/LawLibInstaller.exe --title "الإصدار 1.0.8" --notes "التحديث من جيت هب اضافة محول الكتب من قائمة ملف"" 
+# gh release create v1.0.9 output/LawLibInstaller.exe --title "الإصدار 1.0.9" --notes "دمج ميزة المفضلة، تحسين عرض نتائج البحث"
 import base64
 import json
 import logging
@@ -37,7 +37,7 @@ from whoosh.index import create_in, open_dir
 from whoosh.qparser import QueryParser
 from icon import icon_base64
 
-CURRENT_VERSION = "v1.0.8"
+CURRENT_VERSION = "v1.0.9"
 
 
 icon_base64 = icon_base64
@@ -74,6 +74,17 @@ logging.basicConfig(
 # استخدام HISTORY_FILE_PATH بدلًا من ثابت مباشر
 LOCAL_HISTORY_FILE = HISTORY_FILE_PATH
 
+FAVORITES_FILE = os.path.join(DEFAULT_DATA_DIR, "log/favorites.json")
+
+def load_favorites():
+    if os.path.exists(FAVORITES_FILE):
+        with open(FAVORITES_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_favorites(favs):
+    with open(FAVORITES_FILE, "w", encoding="utf-8") as f:
+        json.dump(favs, f, ensure_ascii=False, indent=2)
 
 def initialize_index():
     try:
@@ -470,6 +481,7 @@ class SearchApp(QMainWindow):
         self.completer.setCaseSensitivity(Qt.CaseInsensitive)
         self.last_search_results_html = ""  # Initialize variable to store HTML results
         self.init_ui()
+        self.favorites = load_favorites()
         self.center_on_screen()
 
         self.setStyleSheet(
@@ -588,10 +600,15 @@ QMenu::item:selected {
         main_layout.addWidget(search_group_widget)
 
         menubar = self.menuBar()
-        file_menu = menubar.addMenu("ملف") 
+        file_menu = menubar.addMenu("ملف")
+        show_fav_action = QAction("عرض المفضلة", self)
+        show_fav_action.triggered.connect(self.show_favorites)
+        show_fav_action.setShortcut("Ctrl+F")
+        file_menu.addAction(show_fav_action) 
         converter_action = QAction("محول الكتب", self)
         converter_action.setToolTip("افتح الأداة الخارجية لتحويل ملفات PDF")
         converter_action.triggered.connect(self.open_pdf_converter)
+        converter_action.setShortcut("Ctrl+N")  # إضافة اختصار
         file_menu.addAction(converter_action)
         file_menu.addSeparator()
         help_menu = menubar.addMenu("مساعدة")
@@ -631,6 +648,54 @@ QMenu::item:selected {
 
         self.statusBar().showMessage("جاهز.")
 
+    def show_favorites(self):
+        self.showing_favorites = True
+        current_scroll_pos = self.results_browser.verticalScrollBar().value()
+        if not self.favorites:
+            QMessageBox.information(self, "المفضلة", "📭 لا توجد عناصر في المفضلة.")
+            return
+
+        html = "<h2>⭐ المفضلة:</h2><div style='display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;'>"
+        
+        for i, fav in enumerate(self.favorites, 1):
+            pdf_path = fav["pdf"]
+            page = fav["page"]
+            title = fav.get("title", "بدون عنوان")
+            image = fav.get("image", "")
+            
+            # Properly encode the removal URL parameters
+            encoded_path = QUrl.toPercentEncoding(pdf_path).data().decode()
+            encoded_title = QUrl.toPercentEncoding(title).data().decode()
+            encoded_image = QUrl.toPercentEncoding(image).data().decode() if image else ""
+            
+            remove_link = f"action:remove_fav|{encoded_title}|{encoded_image}|{encoded_path}|{page}"
+            
+            # Create the link to open PDF
+            pdf_link = QUrl.fromLocalFile(pdf_path).toString() + f"#page={page}"
+            
+            card_html = (
+                "<div style='border:1px solid #ddd; border-radius:10px; padding:14px; box-shadow:0 2px 6px rgba(0,0,0,0.05); display:flex; flex-direction:column; height:100%; font-family:Cairo,Amiri,sans-serif;'>"
+                )
+            
+            if image:
+                card_html += f"<div style='text-align:center; margin-bottom:10px;'><img src='{image}' style='max-width:70%; max-height:80px; border-radius:6px;'/></div>"
+            
+            
+            card_html += (
+                f"<h4 style='margin:0 0 8px 0; font-size: 1em; color:#0d47a1;'>{i}. {title}</h4>"
+                f"<p style='font-size:0.8em; color:#666; margin:0 0 10px 0;'>المسار: {os.path.basename(pdf_path)}</p>"
+                f'<a href="{pdf_link}" style="color: #1e7e34; text-decoration: none;">📂 افتح الملف (صفحة {page})</a>'
+                f'<a href="{remove_link}" style="color: #e91e63; margin-top: 8px;">❌ إزالة من المفضلة</a>'
+            )
+            
+
+                
+            card_html += "</div><hr>"
+            html += card_html
+            
+        html += "</div>"
+        self.results_browser.setHtml(html)
+        self.results_browser.verticalScrollBar().setValue(current_scroll_pos)
 
     def open_pdf_converter(self):
         # APP_DIR هنا لا يزال str، فنستخدم os.path.join
@@ -764,6 +829,7 @@ QMenu::item:selected {
             self.statusBar().showMessage("تم إغلاق نافذة الفهرسة.")
 
     def search_query(self):
+        self.showing_favorites = False
         query_text = self.search_input.text().strip()
         if not query_text:
             self.results_browser.setHtml(
@@ -873,19 +939,16 @@ QMenu::item:selected {
 
                     # بطاقة نتيجة واحدة
                     card_html = (
-                        "<div style='"
-                        "border: 1px solid #ddd;"
-                        "border-radius: 10px;"
-                        "padding: 14px;"
-                        "box-shadow: 0 2px 6px rgba(0,0,0,0.05);"
-                        "display: flex;"
-                        "flex-direction: column;"
-                        "height: 100%;"
-                        "font-family: Cairo, Amiri, sans-serif;"
-                        "'>"
+                        "<div style='border:1px solid #ddd; border-radius:10px; padding:14px; box-shadow:0 2px 6px rgba(0,0,0,0.05); display:flex; flex-direction:column; height:100%; font-family:Cairo,Amiri,sans-serif;'>"
                     )
+                    # الصورة (اعلى البطاقة)
+                    if image_base64:
+                        card_html += f"<div style='text-align:center; margin-bottom:10px;'><img src='{image_base64}' style='max-width:70%; max-height:80px; border-radius:6px;'/></div>"
 
-                   
+                    is_fav = any(f["pdf"] == pdf_path and f["page"] == page_num for f in self.favorites)
+                    fav_label = "⭐ إزالة من المفضلة" if is_fav else "☆ أضف إلى المفضلة"
+                    fav_action = "remove_fav" if is_fav else "add_fav"
+                    fav_button = f'<a href="action:{fav_action}|{file_title}|{image_base64}|{pdf_path}|{page_num}" style="color: #e91e63;">{fav_label}</a>'
                     # عنوان وتفاصيل البطاقة
                     card_html += (
                         f"<h4 style='margin:0 0 8px 0; font-size: 1em; color:#0d47a1;'>{i+1}. {file_title}</h4>"
@@ -896,16 +959,9 @@ QMenu::item:selected {
                         f'<a href="{external_link_href}" '
                         "style='align-self: flex-start; font-size: 0.9em; color: #1e7e34; text-decoration: none; font-weight: bold;' "
                         f'target="_blank">📂 افتح الملف (صفحة {page_num})</a>'
+                        f"{fav_button}"
                     )
                    
-                    # الصورة (اسفل البطاقة)
-                    if image_base64:
-                        card_html += (
-                            "<div style='flex-shrink: 0; text-align: center; margin-bottom: 10px;'>"
-                            f"<img src='{image_base64}' "
-                            "style='max-width: 70%; max-height: 80px; border-radius: 6px;' height='800'/>"
-                            "</div>"
-                        )
                     # نهاية البطاقة
                     card_html += (
                         "</div>"
@@ -936,6 +992,44 @@ QMenu::item:selected {
 
     def handle_link_click(self, url: QUrl):
         full_file_uri = url.toString()
+        url_str = QUrl.fromPercentEncoding(url.toEncoded())
+        if url_str.startswith("action:add_fav") or url_str.startswith("action:remove_fav"):
+            current_scroll_pos = self.results_browser.verticalScrollBar().value()
+            if self.last_search_results_html:
+                self.results_browser.setHtml(self.last_search_results_html)
+            parts = url_str.split("|")
+            if len(parts) < 5:
+                logging.error(f"رابط غير صالح: {url_str}")
+                QMessageBox.warning(self, "خطأ", "الرابط غير صالح لإضافة أو حذف المفضلة.")
+                return
+            action = parts[0].split(":")[1]
+            file_title = parts[1]
+            image_base64 = parts[2]
+            pdf_path = parts[3]
+            try:
+                page = int(parts[4])
+            except ValueError:
+                QMessageBox.warning(self, "خطأ", "رقم الصفحة غير صالح.")
+                return
+
+            if action == "add_fav":
+                self.favorites.append({
+                    "pdf": pdf_path, 
+                    "page": page,
+                    "title": file_title,
+                    "image": image_base64
+            })
+            else:
+                self.favorites = [
+                    f for f in self.favorites if not (f["pdf"] == pdf_path and f["page"] == page)
+                ]
+            save_favorites(self.favorites)
+            if hasattr(self, "showing_favorites") and self.showing_favorites:
+                self.show_favorites()
+            else:
+                self.search_query()
+            self.results_browser.verticalScrollBar().setValue(current_scroll_pos)
+            return
 
         # استخراج المسار المحلي للملف ورقم الصفحة للعرض/التسجيل
         pdf_path = url.toLocalFile()
@@ -949,9 +1043,7 @@ QMenu::item:selected {
                     f"Could not parse page number from fragment: {page_fragment}"
                 )
 
-        print(
-            f"Attempting to open URI: {full_file_uri}, Local Path: {pdf_path}, Page: {page_num}"
-        )
+
         self.statusBar().showMessage(
             f"محاولة فتح: {os.path.basename(pdf_path)}، صفحة: {page_num if page_num else 'غير محددة'}"
         )
