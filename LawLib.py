@@ -948,7 +948,8 @@ QMenu::item:selected {
                     is_fav = any(f["pdf"] == pdf_path and f["page"] == page_num for f in self.favorites)
                     fav_label = "⭐ إزالة من المفضلة" if is_fav else "☆ أضف إلى المفضلة"
                     fav_action = "remove_fav" if is_fav else "add_fav"
-                    fav_button = f'<a href="action:{fav_action}|{file_title}|{image_base64}|{pdf_path}|{page_num}" style="color: #e91e63;">{fav_label}</a>'
+                    sep = "¤"
+                    fav_button = f'<a href="action:{fav_action}{sep}{file_title}{sep}{image_base64}{sep}{pdf_path}{sep}{page_num}" style="color: #e91e63;">{fav_label}</a>'
                     # عنوان وتفاصيل البطاقة
                     card_html += (
                         f"<h4 style='margin:0 0 8px 0; font-size: 1em; color:#0d47a1;'>{i+1}. {file_title}</h4>"
@@ -997,7 +998,7 @@ QMenu::item:selected {
             current_scroll_pos = self.results_browser.verticalScrollBar().value()
             if self.last_search_results_html:
                 self.results_browser.setHtml(self.last_search_results_html)
-            parts = url_str.split("|")
+            parts = url_str.split("¤")
             if len(parts) < 5:
                 logging.error(f"رابط غير صالح: {url_str}")
                 QMessageBox.warning(self, "خطأ", "الرابط غير صالح لإضافة أو حذف المفضلة.")
