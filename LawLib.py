@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico --splash=splash.jpg
-# gh release create v1.0.9 output/LawLibInstaller.exe --title "الإصدار 1.0.9" --notes "دمج ميزة المفضلة، تحسين عرض نتائج البحث"
+# gh release create v1.1.0 output/LawLibInstaller.exe --title "الإصدار 1.1.0" --notes "الرجوع الى قائمة المفضلة بعد فتح الكتاب"
 import base64
 import json
 import logging
@@ -38,7 +38,7 @@ from whoosh.qparser import QueryParser
 from icon import icon_base64
 
 
-CURRENT_VERSION = "v1.0.9"
+CURRENT_VERSION = "v1.1.0"
 
 
 icon_base64 = icon_base64
@@ -1090,18 +1090,18 @@ QMenu::item:selected {
 
             # ----------------------------------------------------------------------
             # التغيير الجديد: الرجوع إلى نتائج البحث السابقة
-            if (
-                hasattr(self, "last_search_results_html")
-                and self.last_search_results_html
-            ):
-                self.results_browser.setHtml(self.last_search_results_html)
-                # Restore scroll position
-                self.results_browser.verticalScrollBar().setValue(current_scroll_pos)
+            if getattr(self, "showing_favorites", False):
+                # إذا كنا في المفضلة، نعيد عرضها
+                self.show_favorites()
             else:
-                # في حال عدم وجود نتائج سابقة (مثلاً إذا لم يتم البحث بعد)
-                self.results_browser.setHtml(
-                    "<p>تم فتح الملف بنجاح.</p><p>لا توجد نتائج سابقة لعرضها.</p>"
-                )
+                # إذا كنا في نتائج البحث
+                if hasattr(self, "last_search_results_html") and self.last_search_results_html:
+                    self.results_browser.setHtml(self.last_search_results_html)
+                    self.results_browser.verticalScrollBar().setValue(current_scroll_pos)
+                else:
+                    self.results_browser.setHtml(
+                        "<p>تم فتح الملف بنجاح.</p><p>لا توجد نتائج سابقة لعرضها.</p>"
+                    )
             # ----------------------------------------------------------------------
 
         except Exception as e:
