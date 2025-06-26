@@ -20,6 +20,7 @@ if platform.system() == "Windows":
 
     subprocess.Popen = _popen_hidden
 import os
+from send2trash import send2trash
 import uuid
 import logging
 import hashlib
@@ -223,6 +224,7 @@ def process_pdf(filepath, index_dir):
     try:
         sha = calculate_sha512(filepath)
         if sha512_exists_in_index(index_dir, sha):
+            send2trash(str(filepath))
             logging.info(f"تخطي مكرر: {filepath}")
             return
 
@@ -272,8 +274,13 @@ def process_pdf(filepath, index_dir):
         )
 
         save_pdf_thumbnail(dest_pdf, folder)
+        from LawLib import index_single_json_book  # أو حسب المسار الصحيح في مشروعك
+        index_single_json_book(
+            json_path=str(json_file),
+            pdf_path=str(dest_pdf),
+            image_path=str(folder / f"{idx}.jpg"),
+            index_dir=index_dir
+        )
         logging.info(f"✅ processed: {dest_pdf}, title: {book_title}")
     except Exception as e:
         logging.error(f"❌ خطأ أثناء معالجة {filepath}: {e}")
-
-

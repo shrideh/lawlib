@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico --splash=splash.jpg
-# gh release create v1.1.0 output/LawLibInstaller.exe --title "الإصدار 1.1.0" --notes "الرجوع الى قائمة المفضلة بعد فتح الكتاب"
+# gh release create v1.1.1 output/LawLibInstaller.exe --title "الإصدار 1.1.1" --notes "فهرسة الكتاب مباشرة بعد التحويل لضمان عدم تكرار الكتب"
 import base64
 import json
 import logging
@@ -38,7 +38,7 @@ from whoosh.qparser import QueryParser
 from icon import icon_base64
 
 
-CURRENT_VERSION = "v1.1.0"
+CURRENT_VERSION = "v1.1.1"
 
 
 icon_base64 = icon_base64
@@ -87,7 +87,7 @@ def load_favorites():
 def save_favorites(favs):
     # إنشاء مهمة الحفظ
     save_task = SaveFavoritesTask(favs)
-    
+
     # إضافة المهمة إلى مجموعة الخيوط
     QThreadPool.globalInstance().start(save_task)
 
@@ -235,6 +235,47 @@ def normalize_arabic(text):
     for src, target in replacements.items():
         text = text.replace(src, target)
     return text
+
+def index_single_json_book(json_path, pdf_path, image_path, index_dir):
+    try:
+        ix = open_dir(index_dir)
+        schema = ix.schema
+        writer = ix.writer()
+
+        with open(json_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        sha = data.get("sha512", "").strip()
+        if not sha:
+            logging.warning(f"❌ لا يوجد sha512 في {json_path}")
+            return
+
+        with ix.searcher() as searcher:
+            query = QueryParser("sha512", schema=schema).parse(f'"{sha}"')
+            if searcher.search(query, limit=1):
+                logging.info(f"⚠️ الكتاب مفهرس مسبقًا: {json_path}")
+                return
+
+        title = data.get("book_name", os.path.basename(json_path))
+
+        for entry in data.get("contents", []):
+            page = entry.get("page")
+            content = entry.get("text", "").strip()
+            if content:
+                writer.add_document(
+                    title=normalize_arabic(title),
+                    content=normalize_arabic(content),
+                    path=json_path,
+                    pdf=pdf_path,
+                    image=image_path,
+                    sha512=sha,
+                    page=page,
+                )
+
+        writer.commit()
+        logging.info(f"✅ تمت فهرسة الكتاب: {title}")
+    except Exception as e:
+        logging.error(f"❌ خطأ أثناء فهرسة {json_path}: {e}", exc_info=True)
 
 
 def index_json_books(base_dir, index_dir, progress_callback=None):
@@ -621,7 +662,7 @@ QMenu::item:selected {
         show_fav_action = QAction("عرض المفضلة", self)
         show_fav_action.triggered.connect(self.show_favorites)
         show_fav_action.setShortcut("Ctrl+F")
-        file_menu.addAction(show_fav_action) 
+        file_menu.addAction(show_fav_action)
         converter_action = QAction("محول الكتب", self)
         converter_action.setToolTip("افتح الأداة الخارجية لتحويل ملفات PDF")
         converter_action.triggered.connect(self.open_pdf_converter)
@@ -673,43 +714,43 @@ QMenu::item:selected {
             return
 
         html = "<h2>⭐ المفضلة:</h2><div style='display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 15px;'>"
-        
+
         for i, fav in enumerate(self.favorites, 1):
             pdf_path = fav["pdf"]
             page = fav["page"]
             title = fav.get("title", "بدون عنوان")
             image = fav.get("image", "")
-            
+
             # Properly encode the removal URL parameters
             encoded_path = QUrl.toPercentEncoding(pdf_path).data().decode()
             encoded_title = QUrl.toPercentEncoding(title).data().decode()
             encoded_image = QUrl.toPercentEncoding(image).data().decode() if image else ""
             SEP = "¤"
             remove_link = f"action:remove_fav{SEP}{encoded_title}{SEP}{encoded_image}{SEP}{encoded_path}{SEP}{page}"
-            
+
             # Create the link to open PDF
             pdf_link = QUrl.fromLocalFile(pdf_path).toString() + f"#page={page}"
-            
+
             card_html = (
                 "<div style='border:1px solid #ddd; border-radius:10px; padding:14px; box-shadow:0 2px 6px rgba(0,0,0,0.05); display:flex; flex-direction:column; height:100%; font-family:Cairo,Amiri,sans-serif;'>"
                 )
-            
+
             if image:
                 card_html += f"<div style='text-align:center; margin-bottom:10px;'><img src='{image}' style='max-width:70%; max-height:80px; border-radius:6px;'/></div>"
-            
-            
+
+
             card_html += (
                 f"<h4 style='margin:0 0 8px 0; font-size: 1em; color:#0d47a1;'>{i}. {title}</h4>"
                 f"<p style='font-size:0.8em; color:#666; margin:0 0 10px 0;'>المسار: {os.path.basename(pdf_path)}</p>"
                 f'<a href="{pdf_link}" style="color: #1e7e34; text-decoration: none;">📂 افتح الملف (صفحة {page})</a>'
                 f'<a href="{remove_link}" style="color: #e91e63; margin-top: 8px;">❌ إزالة من المفضلة</a>'
             )
-            
 
-                
+
+
             card_html += "</div><hr>"
             html += card_html
-            
+
         html += "</div>"
         self.results_browser.setHtml(html)
         self.results_browser.verticalScrollBar().setValue(current_scroll_pos)
@@ -979,11 +1020,11 @@ QMenu::item:selected {
                         f'target="_blank">📂 افتح الملف (صفحة {page_num})</a>'
                         f"{fav_button}"
                     )
-                   
+
                     # نهاية البطاقة
                     card_html += (
                         "</div>"
-                        "<hr>"  
+                        "<hr>"
                     )
 
                     html_parts.append(card_html)
@@ -1032,7 +1073,7 @@ QMenu::item:selected {
 
             if action == "add_fav":
                 self.favorites.append({
-                    "pdf": pdf_path, 
+                    "pdf": pdf_path,
                     "page": page,
                     "title": file_title,
                     "image": image_base64
@@ -1470,7 +1511,7 @@ def version_greater(v1, v2):
     # إزالة 'v' أو 'V' إن وجدت
     def clean(v):
         return v.lstrip('vV').split('.')
-    
+
     parts1 = clean(v1)
     parts2 = clean(v2)
 
@@ -1497,7 +1538,7 @@ def version_greater(v1, v2):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
+
     try:
         import pyi_splash
         pyi_splash.close()
