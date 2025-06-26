@@ -238,9 +238,31 @@ def normalize_arabic(text):
 
 def index_single_json_book(json_path, pdf_path, image_path, index_dir):
     try:
-        ix = open_dir(index_dir)
-        schema = ix.schema
-        writer = ix.writer()
+        # تعريف schema
+        arabic_analyzer = StemmingAnalyzer()
+        schema = Schema(
+            title=TEXT(stored=True, analyzer=arabic_analyzer),
+            content=TEXT(stored=True, analyzer=arabic_analyzer),
+            path=ID(stored=True, unique=True),
+            pdf=ID(stored=True),
+            image=ID(stored=True),
+            sha512=ID(stored=True),
+            page=NUMERIC(stored=True),
+        )
+
+        # إنشاء الفهرس إذا لم يكن موجودًا
+        if not os.path.exists(index_dir):
+            os.makedirs(index_dir)
+            ix = create_in(index_dir, schema)
+        else:
+            try:
+                ix = open_dir(index_dir)
+            except Exception as e:
+                logging.error(f"تعذر فتح الفهرس، سيتم إعادة إنشائه: {e}")
+                import shutil
+                shutil.rmtree(index_dir)
+                os.makedirs(index_dir)
+                ix = create_in(index_dir, schema)
 
         with open(json_path, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -251,11 +273,12 @@ def index_single_json_book(json_path, pdf_path, image_path, index_dir):
             return
 
         with ix.searcher() as searcher:
-            query = QueryParser("sha512", schema=schema).parse(f'"{sha}"')
+            query = QueryParser("sha512", schema=ix.schema).parse(f'"{sha}"')
             if searcher.search(query, limit=1):
                 logging.info(f"⚠️ الكتاب مفهرس مسبقًا: {json_path}")
                 return
 
+        writer = ix.writer()
         title = data.get("book_name", os.path.basename(json_path))
 
         for entry in data.get("contents", []):
@@ -271,7 +294,6 @@ def index_single_json_book(json_path, pdf_path, image_path, index_dir):
                     sha512=sha,
                     page=page,
                 )
-
         writer.commit()
         logging.info(f"✅ تمت فهرسة الكتاب: {title}")
     except Exception as e:
