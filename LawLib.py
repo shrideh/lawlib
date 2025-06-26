@@ -1,5 +1,5 @@
 # pyinstaller --noconfirm --onefile --windowed LawLib.py --icon=ico.ico --splash=splash.jpg
-# gh release create v1.1.1 output/LawLibInstaller.exe --title "الإصدار 1.1.1" --notes "فهرسة الكتاب مباشرة بعد التحويل لضمان عدم تكرار الكتب"
+# gh release create v1.1.1 output/LawLibInstaller.exe --title "الإصدار 1.1.1" --notes "ضغط الفهرس لتحسين الاداء واضافة فهرسة الكتاب مباشرة بعد التحويل لضمان عدم تكرار الكتب"
 import base64
 import json
 import logging
@@ -31,6 +31,7 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QCompleter,
 )
+from whoosh import index
 from whoosh.analysis import StemmingAnalyzer
 from whoosh.fields import ID, NUMERIC, Schema, TEXT
 from whoosh.index import create_in, open_dir
@@ -710,6 +711,11 @@ QMenu::item:selected {
         index_action.setShortcut("Ctrl+I")
         index_action.triggered.connect(self.open_index_dialog)
         file_menu.addAction(index_action)
+        optimize_index_action = QAction("ضغط الفهرس", self)
+        optimize_index_action.setShortcut("Ctrl+Shift+O")
+        optimize_index_action.setStatusTip("تحسين أداء البحث بضغط فهرس الكتب")
+        optimize_index_action.triggered.connect(self.optimize_index_dir)
+        file_menu.addAction(optimize_index_action)
         clear_history_action = QAction("مسح سجل البحث", self)
         clear_history_action.setShortcut("Ctrl+Shift+Del")
         clear_history_action.setStatusTip("حذف سجل كلمات البحث السابقة.")
@@ -727,6 +733,25 @@ QMenu::item:selected {
         file_menu.addAction(exit_action)
 
         self.statusBar().showMessage("جاهز.")
+
+    def optimize_index_dir(self):
+        try:
+            if not index.exists_in(self.index_dir):
+                self.statusBar().showMessage("⚠️ لا يوجد فهرس في هذا المسار.")
+                QMessageBox.warning(self, "تنبيه", "⚠️ لا يوجد فهرس في هذا المسار:\n" + self.index_dir)
+                return
+
+            self.statusBar().showMessage("⏳ جاري ضغط الفهرس...")
+            ix = index.open_dir(self.index_dir)
+            writer = ix.writer()
+            writer.commit(optimize=True)
+            self.statusBar().showMessage("✅ تم ضغط الفهرس بنجاح.")
+            QMessageBox.information(self, "تم", "✅ تم ضغط الفهرس بنجاح.")
+
+        except Exception as e:
+            logging.error(f"❌ فشل ضغط الفهرس: {e}", exc_info=True)
+            self.statusBar().showMessage("❌ فشل ضغط الفهرس.")
+            QMessageBox.critical(self, "خطأ", f"❌ حدث خطأ أثناء ضغط الفهرس:\n{e}")
 
     def show_favorites(self):
         self.showing_favorites = True
