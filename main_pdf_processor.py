@@ -218,20 +218,11 @@ def extract_book_title_from_first_page(text, filepath=None):
         logging.error(f"Error extracting title: {e}")
         return Path(filepath).stem if filepath else "عنوان غير معروف"
 
-def mark_duplicate_file(filepath):
-    p = Path(filepath)
-    new_name = p.with_name(f"duplicate_{p.name}")
-    try:
-        p.rename(new_name)
-        logging.info(f"تمت إعادة تسمية الملف المكرر إلى: {new_name}")
-    except Exception as e:
-        logging.error(f"فشل إعادة تسمية الملف {filepath}: {e}")
 
 def process_pdf(filepath, index_dir):
     try:
         sha = calculate_sha512(filepath)
         if sha512_exists_in_index(index_dir, sha):
-            mark_duplicate_file(filepath)
             logging.info(f"تخطي مكرر: {filepath}")
             return
 
