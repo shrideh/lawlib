@@ -31,10 +31,9 @@ from PyQt5.QtWidgets import (
     QCheckBox,
     QCompleter,
 )
-from whoosh import index
 from whoosh.analysis import StemmingAnalyzer
 from whoosh.fields import ID, NUMERIC, Schema, TEXT
-from whoosh.index import create_in, open_dir
+from whoosh.index import create_in, open_dir, exists_in
 from whoosh.qparser import QueryParser
 from icon import icon_base64
 
@@ -542,6 +541,25 @@ class IndexDialog(QDialog):
         else:
             QMessageBox.critical(self, "خطأ في الفهرسة", message)
 
+class OptimizeIndexThread(QThread):
+    finished = pyqtSignal(bool, str)  # نجاح أو فشل، ورسالة
+
+    def __init__(self, index_dir):
+        super().__init__()
+        self.index_dir = index_dir
+
+    def run(self):
+        try:
+            if not exists_in(self.index_dir):
+                self.finished.emit(False, "❌ الفهرس غير موجود أو غير صالح")
+                return
+
+            ix = open_dir(self.index_dir)
+            writer = ix.writer()
+            writer.commit(optimize=True)
+            self.finished.emit(True, "✅ تم ضغط الفهرس بنجاح.")
+        except Exception as e:
+            self.finished.emit(False, f"❌ فشل ضغط الفهرس: {e}")
 
 class SearchApp(QMainWindow):
     def __init__(self):
@@ -734,24 +752,19 @@ QMenu::item:selected {
 
         self.statusBar().showMessage("جاهز.")
 
+
     def optimize_index_dir(self):
-        try:
-            if not index.exists_in(self.index_dir):
-                self.statusBar().showMessage("⚠️ لا يوجد فهرس في هذا المسار.")
-                QMessageBox.warning(self, "تنبيه", "⚠️ لا يوجد فهرس في هذا المسار:\n" + self.index_dir)
-                return
+        self.statusBar().showMessage("⏳ جاري ضغط الفهرس...")
+        self.optimize_thread = OptimizeIndexThread(self.index_dir)
+        self.optimize_thread.finished.connect(self.on_optimize_finished)
+        self.optimize_thread.start()
 
-            self.statusBar().showMessage("⏳ جاري ضغط الفهرس...")
-            ix = index.open_dir(self.index_dir)
-            writer = ix.writer()
-            writer.commit(optimize=True)
-            self.statusBar().showMessage("✅ تم ضغط الفهرس بنجاح.")
-            QMessageBox.information(self, "تم", "✅ تم ضغط الفهرس بنجاح.")
-
-        except Exception as e:
-            logging.error(f"❌ فشل ضغط الفهرس: {e}", exc_info=True)
-            self.statusBar().showMessage("❌ فشل ضغط الفهرس.")
-            QMessageBox.critical(self, "خطأ", f"❌ حدث خطأ أثناء ضغط الفهرس:\n{e}")
+    def on_optimize_finished(self, success, message):
+        self.statusBar().showMessage(message)
+        if success:
+            QMessageBox.information(self, "تم", message)
+        else:
+            QMessageBox.critical(self, "خطأ", message)
 
     def show_favorites(self):
         self.showing_favorites = True
@@ -952,9 +965,6 @@ QMenu::item:selected {
         self.statusBar().showMessage(f"⏳ جارٍ البحث عن: {query_text}...")
 
         try:
-            from whoosh.index import open_dir, exists_in
-            from whoosh.qparser import QueryParser
-
             if not exists_in(self.index_dir) or not os.listdir(
                 self.index_dir
             ):  # Check if index dir exists and is not empty
